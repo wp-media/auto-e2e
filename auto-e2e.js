@@ -63,7 +63,7 @@ class WPRocketMonitor {
     });
   }
 
-  async checkDirectoryExists(dir) {
+  async checkPathExists(dir) {
     try {
       await fs.access(dir);
       return true;
@@ -86,7 +86,7 @@ class WPRocketMonitor {
   async cloneOrUpdateWPRocket() {
     this.log('Cloning/updating WP Rocket repository...');
     
-    const exists = await this.checkDirectoryExists(CONFIG.WP_ROCKET_CLONE_DIR);
+    const exists = await this.checkPathExists(CONFIG.WP_ROCKET_CLONE_DIR);
     
     if (exists) {
       // Update existing repo
@@ -99,21 +99,53 @@ class WPRocketMonitor {
   }
 
   async zipWPRocket() {
-    // Add licence
-    // TODO MLT: Use the compile script.
-    this.log('Creating WP Rocket ZIP file...');
+    try {
+      // Replace licence-data.php with the backup version
+      this.log('Replacing licence-data.php with pre-filled version...');
+      const sourceFile = path.join(CONFIG.WORK_DIR, 'licence-data.php.bak');
+      const targetFile = path.join(CONFIG.WP_ROCKET_CLONE_DIR, 'licence-data.php');
+      
+      // Check if backup file exists
+      const backupExists = await this.checkPathExists(sourceFile);
+      if (!backupExists) {
+        throw new Error(`Pre-filled licence file not found: ${sourceFile}`);
+      }
+
+    await this.executeCommand(`cp ${sourceFile} ${targetFile}`);
+    this.log('Successfully replaced licence-data.php');
     
-    const zipName = `wp-rocket.zip`;
-    const zipPath = path.join(CONFIG.WORK_DIR, zipName);
+    // Run the compile script
+    this.log('Running compile-wp-rocket.sh script...');
+    const compileScript = path.join(CONFIG.WORK_DIR, 'compile-wp-rocket.sh');
     
-    // Create zip (excluding .git and other unnecessary files)
-    await this.executeCommand(
-      `cd ${CONFIG.WP_ROCKET_CLONE_DIR} && zip -r ${zipPath} . -x "*.git*" "node_modules/*" "*.DS_Store*"`,
-      CONFIG.WP_ROCKET_CLONE_DIR
-    );
+    // Check if compile script exists
+    const scriptExists = await this.checkPathExists(compileScript);
+    if (!scriptExists) {
+      throw new Error(`Compile script not found: ${compileScript}`);
+    }
+    
+    // Make sure the script is executable
+    await this.executeCommand(`chmod +x ${compileScript}`);
+    
+    // Run the compile script
+    await this.executeCommand(`bash ${compileScript}`, CONFIG.WORK_DIR);
+    
+    this.log('Checking for generated ZIP file...');
+    const zipPath = path.join(CONFIG.WORK_DIR, 'wp-rocket.zip');
+    if (!zipPath) {
+        throw new Error('No WP Rocket ZIP file found after compilation');
+    }
+    
+    const zipName = path.basename(zipPath);
+    this.log(`Generated ZIP file: ${zipName}`);
     
     return { zipPath, zipName };
+    
+  } catch (error) {
+    this.log(`Failed to compile WP Rocket: ${error.message}`);
+    throw error;
   }
+}
 
   async moveZipToPlugin(zipPath, zipName) {
     this.log('Moving ZIP to plugin directory...');
@@ -258,7 +290,7 @@ class WPRocketMonitor {
     this.log('🚀 Starting WP Rocket Monitor...');
     
     // Validate configuration
-    if (!await this.checkDirectoryExists(CONFIG.E2E_DIR)) {
+    if (!await this.checkPathExists(CONFIG.E2E_DIR)) {
       throw new Error(`E2E directory does not exist: ${CONFIG.E2E_DIR}`);
     }
 
