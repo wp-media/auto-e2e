@@ -238,11 +238,11 @@ class WPRocketMonitor {
     });
   }
 
-  async runSmokeTests() {
-    this.log('Running Smoke Tests...');
+  async runE2ETests() {
+    this.log('Running E2E Tests...');
     
     return new Promise((resolve) => {
-      const process = spawn('npm', ['run', 'test:smoke'], {
+      const process = spawn('npm', ['run', 'test:e2e'], {
         cwd: CONFIG.E2E_DIR,
         stdio: 'pipe'
       });
@@ -259,9 +259,9 @@ class WPRocketMonitor {
       });
 
       process.on('close', (code) => {
-        this.log(`Smoke tests completed with exit code: ${code}`);
-        if (stdout.trim()) this.log(`Smoke tests stdout: ${stdout.trim()}`);
-        if (stderr.trim()) this.log(`Smoke tests stderr: ${stderr.trim()}`);
+        this.log(`E2E tests completed with exit code: ${code}`);
+        if (stdout.trim()) this.log(`E2E tests stdout: ${stdout.trim()}`);
+        if (stderr.trim()) this.log(`E2E tests stderr: ${stderr.trim()}`);
         
         resolve({
           code,
@@ -271,7 +271,7 @@ class WPRocketMonitor {
       });
 
       process.on('error', (error) => {
-        this.log(`Smoke tests process error: ${error.message}`);
+        this.log(`E2E tests process error: ${error.message}`);
         resolve({
           code: 1,
           stdout,
@@ -328,16 +328,16 @@ class WPRocketMonitor {
       
       // Step 5: Run the test suite
       //const result = await this.runHealthcheck();
-      const result = await this.runSmokeTests();
+      const result = await this.runE2ETests();
       
       // Step 6: Check exit code and send notification if needed
       var errorMessage = '';
       if (result.code === 0) {
-        this.log('✅ Smoke tests passed successfully');
-        errorMessage = `✅ WP Rocket E2E Smoke tests Ran Successfully!`;
+        this.log('✅ E2E tests passed successfully');
+        errorMessage = `✅ WP Rocket E2E tests Ran Successfully!`;
       } else {
-        this.log('❌ Smoke tests failed');
-        errorMessage = `❌ WP Rocket E2E Smoke tests Failed!`;
+        this.log('❌ E2E tests failed');
+        errorMessage = `❌ WP Rocket E2E tests Failed!`;
       }
       await this.sendSlackMessage(errorMessage);
       
