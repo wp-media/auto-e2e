@@ -53,6 +53,7 @@ const CONFIG = {
 class WPRocketMonitor {
   constructor() {
     this.isRunning = false;
+    this.isTestRunning = false;
   }
 
   async log(message) {
@@ -302,10 +303,17 @@ class WPRocketMonitor {
   }
 
   async runCycle() {
-    const cycleStart = new Date();
-    this.log(`Starting new cycle at ${cycleStart.toISOString()}`);
+    if (this.isCycleRunning) {
+      this.log('Previous cycle still running, skipping this interval...');
+      return;
+    }
+    this.isCycleRunning = true; // Set flag
+
+    try{
+
+      const cycleStart = new Date();
+      this.log(`Starting new cycle at ${cycleStart.toISOString()}`);
     
-    try {
       // Step 1: Clone/update WP Rocket
       await this.cloneOrUpdateWPRocket();
       
@@ -336,11 +344,14 @@ class WPRocketMonitor {
       const cycleEnd = new Date();
       const duration = cycleEnd - cycleStart;
       this.log(`Cycle completed in ${duration}ms`);
-      
+
     } catch (error) {
       this.log(`❌ Cycle failed with error: ${error.message}`);
       const errorMessage = `❌ WP Rocket Monitor Script Error!`;
       await this.sendSlackMessage(errorMessage);
+
+    } finally {
+      this.isCycleRunning = false; // Reset flag
     }
   }
 
@@ -374,6 +385,7 @@ class WPRocketMonitor {
   async stop() {
     this.log('Stopping WP Rocket Monitor...');
     this.isRunning = false;
+    this.isCycleRunning = false; // Reset cycle flag
     
     if (this.intervalId) {
       clearInterval(this.intervalId);
