@@ -11,7 +11,7 @@ const execAsync = promisify(exec);
 const BASE_DIR = '/home/ubuntu';
 // Simple synchronous .env loader
 function loadEnv() {
-  //try {
+  try {
     const envPath = `${BASE_DIR}/auto-e2e/.env`;
     const envFile = fssync.readFileSync(envPath, 'utf8');
     
@@ -21,9 +21,9 @@ function loadEnv() {
         process.env[key.trim()] = value.trim();
       }
     });
-  //} catch (error) {
-    // .env file doesn't exist or can't be read - that's okay
-  //}
+  } catch (error) {
+     //.env file doesn't exist or can't be read - that's okay
+  }
 }
 
 // Load environment variables
@@ -161,7 +161,7 @@ class WPRocketMonitor {
     const zipName = path.basename(zipPath);
     this.log(`Generated ZIP file: ${zipName}`);
     
-    return { zipPath, zipName };
+    return zipPath;
     
   } catch (error) {
     this.log(`Failed to compile WP Rocket: ${error.message}`);
@@ -169,19 +169,19 @@ class WPRocketMonitor {
   }
 }
 
-  async moveZipToPlugin(zipPath, zipName) {
+  async moveZipToPlugin(zipPath) {
     this.log('Moving ZIP to plugin directory...');
     
     await this.createDirectoryIfNeeded(CONFIG.PLUGIN_DIR);
     
     // Remove old wp-rocket zips to avoid clutter
     try {
-      await this.executeCommand(`rm -f ${CONFIG.PLUGIN_DIR}/wp-rocket.zip`);
+      await this.executeCommand(`rm -f ${CONFIG.PLUGIN_DIR}/new_release.zip`);
     } catch (error) {
       this.log('No old ZIP files to remove (or removal failed)');
     }
     
-    const destinationPath = path.join(CONFIG.PLUGIN_DIR, zipName);
+    const destinationPath = path.join(CONFIG.PLUGIN_DIR, 'new_release.zip');
     await this.executeCommand(`mv ${zipPath} ${destinationPath}`);
     
     return destinationPath;
@@ -310,10 +310,10 @@ class WPRocketMonitor {
       await this.cloneOrUpdateWPRocket();
       
       // Step 2: Create ZIP
-      const { zipPath, zipName } = await this.zipWPRocket();
+      const zipPath = await this.zipWPRocket();
       
       // Step 3: Move ZIP to plugin directory
-      await this.moveZipToPlugin(zipPath, zipName);
+      await this.moveZipToPlugin(zipPath);
       
       // Step 4: Update E2E repo
       await this.updateE2ERepo();
