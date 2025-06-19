@@ -36,6 +36,7 @@ const CONFIG = {
   WP_ROCKET_CLONE_DIR: `${BASE_DIR}/wp-rocket`,
   E2E_DIR: `${BASE_DIR}/wp-rocket-e2e`,
   PLUGIN_DIR: `${BASE_DIR}/wp-rocket-e2e/plugin`,
+  RESULTS_DIR: `${E2E_DIR}/test-results-storage`,
   
   // GitHub
   WP_ROCKET_REPO: 'https://github.com/wp-media/wp-rocket.git', // Update with actual repo URL
@@ -302,6 +303,72 @@ class WPRocketMonitor {
     }
   }
 
+async deleteOldTestResults() {
+  // Delete test results folder older than 4 days
+  this.log('Deleting old test results...');
+  
+  try {
+    // Check if results directory exists
+    const dirExists = await this.pathExists(RESULTS_DIR);
+    if (!dirExists) {
+      this.log('Test results storage directory does not exist, skipping cleanup');
+      return;
+    }
+
+    const files = await fs.readdir(RESULTS_DIR);
+    const now = Date.now();
+    const fourDaysAgo = now - (4 * 24 * 60 * 60 * 1000); // 4 days in milliseconds
+    
+    let deletedCount = 0;
+    
+    for (const file of files) {
+      const filePath = path.join(RESULTS_DIR, file);
+      
+      try {
+        const stats = await fs.stat(filePath);
+        if (stats.isDirectory() && stats.mtime.getTime() < fourDaysAgo) {
+          await fs.rm(filePath, { recursive: true, force: true });
+          this.log(`Deleted old test result: ${file}`);
+          deletedCount++;
+        }
+      } catch (statError) {
+        this.log(`Could not process file ${file}: ${statError.message}`);
+      }
+    }
+    
+    this.log(`Old test results cleanup completed. Deleted ${deletedCount} directories.`);
+  } catch (error) {
+    this.log(`Failed to delete old test results: ${error.message}`);
+  }
+}
+
+async saveTestResults() {
+  this.log('Saving test results...');
+  
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const resultsDir = path.join(CONFIG.RESULTS_DIR, timestamp);
+  const sourceDir = path.join(CONFIG.E2E_DIR, 'test-results');
+  
+  try {
+    // Check if source directory exists and has content
+    const sourceExists = await this.pathExists(sourceDir);
+    if (!sourceExists) {
+      this.log('No test-results directory found, skipping save');
+      return;
+    }
+
+    // Create destination directory
+    await this.createDirectoryIfNeeded(resultsDir);
+    
+    // Move files (using shell command with proper escaping)
+    await this.executeCommand(`cp -r "${sourceDir}"/* "${resultsDir}"/ && rm -rf "${sourceDir}"/*`);
+    
+    this.log(`Test results saved to: ${resultsDir}`);
+  } catch (error) {
+    this.log(`Failed to save test results: ${error.message}`);
+  }
+}
+ 
   async runCycle() {
     if (this.isCycleRunning) {
       this.log('Previous cycle still running, skipping this interval...');
@@ -341,6 +408,10 @@ class WPRocketMonitor {
       }
       await this.sendSlackMessage(errorMessage);
       
+      // Step 7: Maintain test results
+      await this.deleteOldTestResults();
+      await this.saveTestResults();
+
       const cycleEnd = new Date();
       const duration = cycleEnd - cycleStart;
       this.log(`Cycle completed in ${duration}ms`);
