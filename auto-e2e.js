@@ -237,6 +237,49 @@ class WPRocketMonitor {
     });
   }
 
+  async runSmokeTests() {
+    this.log('Running Smoke Tests...');
+    
+    return new Promise((resolve) => {
+      const process = spawn('npm', ['run', 'test:smoke'], {
+        cwd: CONFIG.E2E_DIR,
+        stdio: 'pipe'
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      process.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      process.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      process.on('close', (code) => {
+        this.log(`Smoke tests completed with exit code: ${code}`);
+        if (stdout.trim()) this.log(`Smoke tests stdout: ${stdout.trim()}`);
+        if (stderr.trim()) this.log(`Smoke tests stderr: ${stderr.trim()}`);
+        
+        resolve({
+          code,
+          stdout,
+          stderr
+        });
+      });
+
+      process.on('error', (error) => {
+        this.log(`Smoke tests process error: ${error.message}`);
+        resolve({
+          code: 1,
+          stdout,
+          stderr: error.message
+        });
+      });
+    });
+  }
+
   async sendSlackMessage(message) {
     if (!CONFIG.SLACK_WEBHOOK_URL) {
       this.log('No Slack webhook URL configured, skipping notification');
@@ -275,17 +318,18 @@ class WPRocketMonitor {
       // Step 4: Update E2E repo
       await this.updateE2ERepo();
       
-      // Step 5: Run healthcheck
-      const result = await this.runHealthcheck();
+      // Step 5: Run the test suite
+      //const result = await this.runHealthcheck();
+      const result = await this.runSmokeTests();
       
       // Step 6: Check exit code and send notification if needed
       var errorMessage = '';
       if (result.code === 0) {
-        this.log('✅ Healthcheck passed successfully');
-        errorMessage = `✅ WP Rocket E2E Healthcheck Ran Successfully!`;
+        this.log('✅ Smoke tests passed successfully');
+        errorMessage = `✅ WP Rocket E2E Smoke tests Ran Successfully!`;
       } else {
-        this.log('❌ Healthcheck failed');
-        errorMessage = `❌ WP Rocket E2E Healthcheck Failed!`;
+        this.log('❌ Smoke tests failed');
+        errorMessage = `❌ WP Rocket E2E Smoke tests Failed!`;
       }
       await this.sendSlackMessage(errorMessage);
       
