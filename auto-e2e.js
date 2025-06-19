@@ -36,7 +36,7 @@ const CONFIG = {
   WP_ROCKET_CLONE_DIR: `${BASE_DIR}/wp-rocket`,
   E2E_DIR: `${BASE_DIR}/wp-rocket-e2e`,
   PLUGIN_DIR: `${BASE_DIR}/wp-rocket-e2e/plugin`,
-  RESULTS_DIR: `${E2E_DIR}/test-results-storage`,
+  RESULTS_DIR: `${BASE_DIR}/wp-rocket-e2e/test-results-storage`,
   
   // GitHub
   WP_ROCKET_REPO: 'https://github.com/wp-media/wp-rocket.git', // Update with actual repo URL
