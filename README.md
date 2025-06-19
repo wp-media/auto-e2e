@@ -1,6 +1,6 @@
 **Context**
 
-This repository contains a script that runs [rocket-e2e](https://github.com/wp-media/wp-rocket-e2e) automatically and regularly. The script is designed to run on dedicated test environments (see WP Media internal documentation).
+This repository contains a script that runs [rocket-e2e](https://github.com/wp-media/wp-rocket-e2e) automatically and regularly. The script is designed to run on dedicated test environments ([see WP Media internal documentation](https://www.notion.so/wpmedia/auto-e2e-servers-217ed22a22f0808ea044ce092c342a54?source=copy_link)).
 
 **What the script does**
 
