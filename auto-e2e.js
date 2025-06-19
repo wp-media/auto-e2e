@@ -57,7 +57,6 @@ class WPRocketMonitor {
           reject(error);
         } else {
           this.log(`Command succeeded: ${command}`);
-          if (stdout.trim()) this.log(`Stdout: ${stdout.trim()}`);
           resolve({ stdout, stderr, code: 0 });
         }
       });
