@@ -1,13 +1,35 @@
 #!/usr/bin/env node
 
 const fs = require('fs').promises;
+const fssync = require('fs');
 const path = require('path');
 const { spawn, exec } = require('child_process');
 const { promisify } = require('util');
 const execAsync = promisify(exec);
 
-// Configuration
+
 const BASE_DIR = '/home/ubuntu';
+// Simple synchronous .env loader
+function loadEnv() {
+  //try {
+    const envPath = `${BASE_DIR}/auto-e2e/.env`;
+    const envFile = fssync.readFileSync(envPath, 'utf8');
+    
+    envFile.split('\n').forEach(line => {
+      const [key, value] = line.split('=');
+      if (key && value) {
+        process.env[key.trim()] = value.trim();
+      }
+    });
+  //} catch (error) {
+    // .env file doesn't exist or can't be read - that's okay
+  //}
+}
+
+// Load environment variables
+loadEnv();
+
+// Configuration
 const CONFIG = {
   // Paths
   WORK_DIR: BASE_DIR,
@@ -223,9 +245,7 @@ class WPRocketMonitor {
 
     try {
       const payload = {
-        text: message,
-        username: 'WP Rocket Monitor',
-        icon_emoji: ':warning:'
+        text: message
       };
 
       await this.executeCommand(
@@ -262,10 +282,10 @@ class WPRocketMonitor {
       var errorMessage = '';
       if (result.code === 0) {
         this.log('✅ Healthcheck passed successfully');
-        errorMessage = `WP Rocket E2E Healthcheck Ran Successfully!\n\nTime: ${new Date().toISOString()}`;
+        errorMessage = `✅ WP Rocket E2E Healthcheck Ran Successfully!`;
       } else {
         this.log('❌ Healthcheck failed');
-        errorMessage = `WP Rocket E2E Healthcheck Failed!\n\nExit Code: ${result.code}\n\nStderr: ${result.stderr}\n\nTime: ${new Date().toISOString()}`;
+        errorMessage = `❌ WP Rocket E2E Healthcheck Failed!`;
       }
       await this.sendSlackMessage(errorMessage);
       
@@ -275,7 +295,7 @@ class WPRocketMonitor {
       
     } catch (error) {
       this.log(`❌ Cycle failed with error: ${error.message}`);
-      const errorMessage = `WP Rocket Monitor Script Error!\n\nError: ${error.message}\n\nTime: ${new Date().toISOString()}`;
+      const errorMessage = `❌ WP Rocket Monitor Script Error!`;
       await this.sendSlackMessage(errorMessage);
     }
   }

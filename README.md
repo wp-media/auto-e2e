@@ -17,4 +17,5 @@ The script runs the following loop, until being stopped:
 
 1. Clone the repository on the dedicated test environment.
 2. Ensure the configuration (CONFIG constant) matches the test environment folder structure and settings.
-3. Connect to the environment through a VNC server, open the terminal, navigate to the auto-e2e folder and run `node auto-e2e.js`
+3. Copy .env.example to .env and set the environment variables.
+4. Connect to the environment through a VNC server, open the terminal, navigate to the auto-e2e folder and run `node auto-e2e.js`
