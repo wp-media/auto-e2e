@@ -309,7 +309,7 @@ async deleteOldTestResults() {
   
   try {
     // Check if results directory exists
-    const dirExists = await this.pathExists(RESULTS_DIR);
+    const dirExists = await this.checkPathExists(RESULTS_DIR);
     if (!dirExists) {
       this.log('Test results storage directory does not exist, skipping cleanup');
       return;
@@ -351,7 +351,7 @@ async saveTestResults() {
   
   try {
     // Check if source directory exists and has content
-    const sourceExists = await this.pathExists(sourceDir);
+    const sourceExists = await this.checkPathExists(sourceDir);
     if (!sourceExists) {
       this.log('No test-results directory found, skipping save');
       return;
