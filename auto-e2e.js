@@ -202,39 +202,17 @@ class WPRocketMonitor {
     return new Promise((resolve) => {
       const process = spawn('npm', ['run', 'healthcheck'], {
         cwd: CONFIG.E2E_DIR,
-        stdio: 'pipe'
+        stdio: 'inherit' // This will show output in real-time
       });
 
-      let stdout = '';
-      let stderr = '';
-
-      process.stdout.on('data', (data) => {
-        stdout += data.toString();
-      });
-
-      process.stderr.on('data', (data) => {
-        stderr += data.toString();
-      });
-
-      process.on('close', (code) => {
+       process.on('close', (code) => {
         this.log(`Healthcheck completed with exit code: ${code}`);
-        if (stdout.trim()) this.log(`Healthcheck stdout: ${stdout.trim()}`);
-        if (stderr.trim()) this.log(`Healthcheck stderr: ${stderr.trim()}`);
-        
-        resolve({
-          code,
-          stdout,
-          stderr
-        });
+        resolve({ code });
       });
 
       process.on('error', (error) => {
         this.log(`Healthcheck process error: ${error.message}`);
-        resolve({
-          code: 1,
-          stdout,
-          stderr: error.message
-        });
+        resolve({ code: 1 });
       });
     });
   }
@@ -245,39 +223,17 @@ class WPRocketMonitor {
     return new Promise((resolve) => {
       const process = spawn('npm', ['run', 'test:e2e'], {
         cwd: CONFIG.E2E_DIR,
-        stdio: 'pipe'
+        stdio: 'inherit' // This will show output in real-time
       });
 
-      let stdout = '';
-      let stderr = '';
-
-      process.stdout.on('data', (data) => {
-        stdout += data.toString();
-      });
-
-      process.stderr.on('data', (data) => {
-        stderr += data.toString();
-      });
-
-      process.on('close', (code) => {
+       process.on('close', (code) => {
         this.log(`E2E tests completed with exit code: ${code}`);
-        if (stdout.trim()) this.log(`E2E tests stdout: ${stdout.trim()}`);
-        if (stderr.trim()) this.log(`E2E tests stderr: ${stderr.trim()}`);
-        
-        resolve({
-          code,
-          stdout,
-          stderr
-        });
+        resolve({ code });
       });
 
       process.on('error', (error) => {
         this.log(`E2E tests process error: ${error.message}`);
-        resolve({
-          code: 1,
-          stdout,
-          stderr: error.message
-        });
+        resolve({ code: 1 });
       });
     });
   }
@@ -309,20 +265,20 @@ async deleteOldTestResults() {
   
   try {
     // Check if results directory exists
-    const dirExists = await this.checkPathExists(RESULTS_DIR);
+    const dirExists = await this.checkPathExists(CONFIG.RESULTS_DIR);
     if (!dirExists) {
       this.log('Test results storage directory does not exist, skipping cleanup');
       return;
     }
 
-    const files = await fs.readdir(RESULTS_DIR);
+    const files = await fs.readdir(CONFIG.RESULTS_DIR);
     const now = Date.now();
     const fourDaysAgo = now - (4 * 24 * 60 * 60 * 1000); // 4 days in milliseconds
     
     let deletedCount = 0;
     
     for (const file of files) {
-      const filePath = path.join(RESULTS_DIR, file);
+      const filePath = path.join(CONFIG.RESULTS_DIR, file);
       
       try {
         const stats = await fs.stat(filePath);
