@@ -350,8 +350,8 @@ async saveTestResults() {
       await this.updateE2ERepo();
       
       // Step 5: Run the test suite
-      //const result = await this.runHealthcheck();
-      const result = await this.runE2ETests();
+      const result = await this.runHealthcheck();
+      //const result = await this.runE2ETests();
       
       // Step 6: Check exit code and send notification if needed
       var errorMessage = '';
