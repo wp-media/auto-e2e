@@ -10,7 +10,8 @@ The script runs the following loop, until being stopped:
 - Move the zip file to its expected location by rocket-e2e
 - Update the rocket-e2e repo to the latest git develop branch.
 - Run rocket-e2e (with specific options)
-- Logs & sends to Slack the result of the run
+- Copy & Rename the `wp-rocket-e2e/test-results` folder in `wp-rocket-e2e/test-results-storage`. Results are stored for 4 days.
+- Logs & sends to Slack the result of the run (#wpmedia_auto-e2e-reports)
 - Wait a few minutes before starting another run.
 
 **How to run**
