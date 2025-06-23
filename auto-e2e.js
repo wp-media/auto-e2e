@@ -5,7 +5,6 @@ const fssync = require('fs');
 const path = require('path');
 const { spawn, exec } = require('child_process');
 const { promisify } = require('util');
-const execAsync = promisify(exec);
 
 
 const BASE_DIR = '/home/ubuntu';
@@ -196,43 +195,22 @@ class WPRocketMonitor {
     await this.executeCommand('git reset --hard origin/develop', CONFIG.E2E_DIR); // or master/develop
   }
 
-  async runHealthcheck() {
-    this.log('Running healthcheck...');
+  async runE2ETests(testSuite) {
+    this.log(`Running E2E Tests: ${testSuite}...`);
     
     return new Promise((resolve) => {
-      const process = spawn('npm', ['run', 'healthcheck'], {
+      const process = spawn('npm', ['run', testSuite], {
         cwd: CONFIG.E2E_DIR,
         stdio: 'inherit' // This will show output in real-time
       });
 
        process.on('close', (code) => {
-        this.log(`Healthcheck completed with exit code: ${code}`);
+        this.log(`E2E tests ${testSuite} completed with exit code: ${code}`);
         resolve({ code });
       });
 
       process.on('error', (error) => {
-        this.log(`Healthcheck process error: ${error.message}`);
-        resolve({ code: 1 });
-      });
-    });
-  }
-
-  async runE2ETests() {
-    this.log('Running E2E Tests...');
-    
-    return new Promise((resolve) => {
-      const process = spawn('npm', ['run', 'test:e2e'], {
-        cwd: CONFIG.E2E_DIR,
-        stdio: 'inherit' // This will show output in real-time
-      });
-
-       process.on('close', (code) => {
-        this.log(`E2E tests completed with exit code: ${code}`);
-        resolve({ code });
-      });
-
-      process.on('error', (error) => {
-        this.log(`E2E tests process error: ${error.message}`);
+        this.log(`E2E tests ${testSuite} process error: ${error.message}`);
         resolve({ code: 1 });
       });
     });
@@ -325,7 +303,7 @@ async saveTestResults() {
   }
 }
  
-  async runCycle() {
+  async runCycle(testSuite) {
     if (this.isCycleRunning) {
       this.log('Previous cycle still running, skipping this interval...');
       return;
@@ -350,17 +328,16 @@ async saveTestResults() {
       await this.updateE2ERepo();
       
       // Step 5: Run the test suite
-      //const result = await this.runHealthcheck();
-      const result = await this.runE2ETests();
+      const result = await this.runE2ETests(testSuite);
       
       // Step 6: Check exit code and send notification if needed
       var errorMessage = '';
       if (result.code === 0) {
-        this.log('✅ E2E tests passed successfully');
-        errorMessage = `✅ WP Rocket E2E tests Ran Successfully!`;
+        this.log(`✅ E2E tests ${testSuite} passed successfully`);
+        errorMessage = `✅ WP Rocket E2E tests ${testSuite} Ran Successfully!`;
       } else {
-        this.log('❌ E2E tests failed');
-        errorMessage = `❌ WP Rocket E2E tests Failed!`;
+        this.log(`❌ E2E tests ${testSuite} failed`);
+        errorMessage = `❌ WP Rocket E2E tests ${testSuite} Failed!`;
       }
       await this.sendSlackMessage(errorMessage);
       
@@ -382,14 +359,14 @@ async saveTestResults() {
     }
   }
 
-  async start() {
+  async start(testSuite) {
     if (this.isRunning) {
       this.log('Monitor is already running');
       return;
     }
 
     this.isRunning = true;
-    this.log('🚀 Starting WP Rocket Monitor...');
+    this.log(`🚀 Starting Rocket E2E Monitor for ${testSuite}...`);
     
     // Validate configuration
     if (!await this.checkPathExists(CONFIG.E2E_DIR)) {
@@ -397,12 +374,12 @@ async saveTestResults() {
     }
 
     // Run first cycle immediately
-    await this.runCycle();
+    await this.runCycle(testSuite);
     
     // Set up recurring cycles
     this.intervalId = setInterval(async () => {
       if (this.isRunning) {
-        await this.runCycle();
+        await this.runCycle(testSuite);
       }
     }, CONFIG.LOOP_INTERVAL);
     
@@ -436,7 +413,8 @@ process.on('SIGTERM', async () => {
 });
 
 // Start the monitor
-monitor.start().catch((error) => {
+const testSuite = process.argv[2] || 'test:e2e';
+monitor.start(testSuite).catch((error) => {
   console.error('Failed to start monitor:', error.message);
   process.exit(1);
 });
