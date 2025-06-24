@@ -155,7 +155,7 @@ class WPRocketMonitor {
     
     this.log('Checking for generated ZIP file...');
     const zipPath = path.join(CONFIG.WORK_DIR, 'wp-rocket.zip');
-    if (!fs.existsSync(zipPath)) {
+    if (!fssync.existsSync(zipPath)) {
         throw new Error('No WP Rocket ZIP file found after compilation');
     }
     
