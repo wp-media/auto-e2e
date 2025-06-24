@@ -7,7 +7,7 @@ const { spawn, exec } = require('child_process');
 const { promisify } = require('util');
 
 
-const BASE_DIR = '/home/ubuntu';
+const BASE_DIR = path.dirname(path.dirname(__filename));
 // Simple synchronous .env loader
 function loadEnv() {
   try {
