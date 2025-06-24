@@ -47,7 +47,7 @@ const CONFIG = {
   LOOP_INTERVAL: 5 * 60 * 1000, // 5 minutes in milliseconds
   
   // Logging
-  LOG_FILE: '/home/ubuntu/wp-rocket-monitor.log'
+  LOG_FILE: `${BASE_DIR}/wp-rocket-monitor.log`
 };
 
 class WPRocketMonitor {
