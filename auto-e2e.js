@@ -53,7 +53,7 @@ const CONFIG = {
 class WPRocketMonitor {
   constructor() {
     this.isRunning = false;
-    this.isTestRunning = false;
+    this.isCycleRunning = false;
   }
 
   async log(message) {
@@ -155,7 +155,7 @@ class WPRocketMonitor {
     
     this.log('Checking for generated ZIP file...');
     const zipPath = path.join(CONFIG.WORK_DIR, 'wp-rocket.zip');
-    if (!zipPath) {
+    if (!fs.existsSync(zipPath)) {
         throw new Error('No WP Rocket ZIP file found after compilation');
     }
     
@@ -331,13 +331,13 @@ async saveTestResults() {
       const result = await this.runE2ETests(testSuite);
       
       // Step 6: Check exit code and send notification if needed
-      var errorMessage = '';
+      let slackMessage = '';
       if (result.code === 0) {
         this.log(`✅ E2E tests ${testSuite} passed successfully`);
-        errorMessage = `✅ WP Rocket E2E tests ${testSuite} Ran Successfully!`;
+        slackMessage = `✅ WP Rocket E2E tests ${testSuite} Ran Successfully!`;
       } else {
         this.log(`❌ E2E tests ${testSuite} failed`);
-        errorMessage = `❌ WP Rocket E2E tests ${testSuite} Failed!`;
+        slackMessage = `❌ WP Rocket E2E tests ${testSuite} Failed!`;
       }
       await this.sendSlackMessage(errorMessage);
       
