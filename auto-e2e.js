@@ -339,7 +339,7 @@ async saveTestResults() {
         this.log(`❌ E2E tests ${testSuite} failed`);
         slackMessage = `❌ WP Rocket E2E tests ${testSuite} Failed!`;
       }
-      await this.sendSlackMessage(errorMessage);
+      await this.sendSlackMessage(slackMessage);
       
       // Step 7: Maintain test results
       await this.deleteOldTestResults();
