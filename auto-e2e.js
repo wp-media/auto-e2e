@@ -5,13 +5,12 @@ const fssync = require('fs');
 const path = require('path');
 const { spawn, exec } = require('child_process');
 const { promisify } = require('util');
-const execAsync = promisify(exec);
 
 
-const BASE_DIR = '/home/ubuntu';
+const BASE_DIR = path.dirname(path.dirname(__filename));
 // Simple synchronous .env loader
 function loadEnv() {
-  //try {
+  try {
     const envPath = `${BASE_DIR}/auto-e2e/.env`;
     const envFile = fssync.readFileSync(envPath, 'utf8');
     
@@ -21,9 +20,9 @@ function loadEnv() {
         process.env[key.trim()] = value.trim();
       }
     });
-  //} catch (error) {
-    // .env file doesn't exist or can't be read - that's okay
-  //}
+  } catch (error) {
+     //.env file doesn't exist or can't be read - that's okay
+  }
 }
 
 // Load environment variables
@@ -36,6 +35,7 @@ const CONFIG = {
   WP_ROCKET_CLONE_DIR: `${BASE_DIR}/wp-rocket`,
   E2E_DIR: `${BASE_DIR}/wp-rocket-e2e`,
   PLUGIN_DIR: `${BASE_DIR}/wp-rocket-e2e/plugin`,
+  RESULTS_DIR: `${BASE_DIR}/wp-rocket-e2e/test-results-storage`,
   
   // GitHub
   WP_ROCKET_REPO: 'https://github.com/wp-media/wp-rocket.git', // Update with actual repo URL
@@ -47,12 +47,13 @@ const CONFIG = {
   LOOP_INTERVAL: 5 * 60 * 1000, // 5 minutes in milliseconds
   
   // Logging
-  LOG_FILE: '/home/ubuntu/wp-rocket-monitor.log'
+  LOG_FILE: `${BASE_DIR}/wp-rocket-monitor.log`
 };
 
 class WPRocketMonitor {
   constructor() {
     this.isRunning = false;
+    this.isCycleRunning = false;
   }
 
   async log(message) {
@@ -154,14 +155,14 @@ class WPRocketMonitor {
     
     this.log('Checking for generated ZIP file...');
     const zipPath = path.join(CONFIG.WORK_DIR, 'wp-rocket.zip');
-    if (!zipPath) {
+    if (!fssync.existsSync(zipPath)) {
         throw new Error('No WP Rocket ZIP file found after compilation');
     }
     
     const zipName = path.basename(zipPath);
     this.log(`Generated ZIP file: ${zipName}`);
     
-    return { zipPath, zipName };
+    return zipPath;
     
   } catch (error) {
     this.log(`Failed to compile WP Rocket: ${error.message}`);
@@ -169,19 +170,19 @@ class WPRocketMonitor {
   }
 }
 
-  async moveZipToPlugin(zipPath, zipName) {
+  async moveZipToPlugin(zipPath) {
     this.log('Moving ZIP to plugin directory...');
     
     await this.createDirectoryIfNeeded(CONFIG.PLUGIN_DIR);
     
     // Remove old wp-rocket zips to avoid clutter
     try {
-      await this.executeCommand(`rm -f ${CONFIG.PLUGIN_DIR}/wp-rocket.zip`);
+      await this.executeCommand(`rm -f ${CONFIG.PLUGIN_DIR}/new_release.zip`);
     } catch (error) {
       this.log('No old ZIP files to remove (or removal failed)');
     }
     
-    const destinationPath = path.join(CONFIG.PLUGIN_DIR, zipName);
+    const destinationPath = path.join(CONFIG.PLUGIN_DIR, 'new_release.zip');
     await this.executeCommand(`mv ${zipPath} ${destinationPath}`);
     
     return destinationPath;
@@ -194,45 +195,23 @@ class WPRocketMonitor {
     await this.executeCommand('git reset --hard origin/develop', CONFIG.E2E_DIR); // or master/develop
   }
 
-  async runHealthcheck() {
-    this.log('Running healthcheck...');
+  async runE2ETests(testSuite) {
+    this.log(`Running E2E Tests: ${testSuite}...`);
     
     return new Promise((resolve) => {
-      const process = spawn('npm', ['run', 'healthcheck'], {
+      const process = spawn('npm', ['run', testSuite], {
         cwd: CONFIG.E2E_DIR,
-        stdio: 'pipe'
+        stdio: 'inherit' // This will show output in real-time
       });
 
-      let stdout = '';
-      let stderr = '';
-
-      process.stdout.on('data', (data) => {
-        stdout += data.toString();
-      });
-
-      process.stderr.on('data', (data) => {
-        stderr += data.toString();
-      });
-
-      process.on('close', (code) => {
-        this.log(`Healthcheck completed with exit code: ${code}`);
-        if (stdout.trim()) this.log(`Healthcheck stdout: ${stdout.trim()}`);
-        if (stderr.trim()) this.log(`Healthcheck stderr: ${stderr.trim()}`);
-        
-        resolve({
-          code,
-          stdout,
-          stderr
-        });
+       process.on('close', (code) => {
+        this.log(`E2E tests ${testSuite} completed with exit code: ${code}`);
+        resolve({ code });
       });
 
       process.on('error', (error) => {
-        this.log(`Healthcheck process error: ${error.message}`);
-        resolve({
-          code: 1,
-          stdout,
-          stderr: error.message
-        });
+        this.log(`E2E tests ${testSuite} process error: ${error.message}`);
+        resolve({ code: 1 });
       });
     });
   }
@@ -258,56 +237,136 @@ class WPRocketMonitor {
     }
   }
 
-  async runCycle() {
-    const cycleStart = new Date();
-    this.log(`Starting new cycle at ${cycleStart.toISOString()}`);
+async deleteOldTestResults() {
+  // Delete test results folder older than 4 days
+  this.log('Deleting old test results...');
+  
+  try {
+    // Check if results directory exists
+    const dirExists = await this.checkPathExists(CONFIG.RESULTS_DIR);
+    if (!dirExists) {
+      this.log('Test results storage directory does not exist, skipping cleanup');
+      return;
+    }
+
+    const files = await fs.readdir(CONFIG.RESULTS_DIR);
+    const now = Date.now();
+    const fourDaysAgo = now - (4 * 24 * 60 * 60 * 1000); // 4 days in milliseconds
     
-    try {
+    let deletedCount = 0;
+    
+    for (const file of files) {
+      const filePath = path.join(CONFIG.RESULTS_DIR, file);
+      
+      try {
+        const stats = await fs.stat(filePath);
+        if (stats.isDirectory() && stats.mtime.getTime() < fourDaysAgo) {
+          await fs.rm(filePath, { recursive: true, force: true });
+          this.log(`Deleted old test result: ${file}`);
+          deletedCount++;
+        }
+      } catch (statError) {
+        this.log(`Could not process file ${file}: ${statError.message}`);
+      }
+    }
+    
+    this.log(`Old test results cleanup completed. Deleted ${deletedCount} directories.`);
+  } catch (error) {
+    this.log(`Failed to delete old test results: ${error.message}`);
+  }
+}
+
+async saveTestResults() {
+  this.log('Saving test results...');
+  
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const resultsDir = path.join(CONFIG.RESULTS_DIR, timestamp);
+  const sourceDir = path.join(CONFIG.E2E_DIR, 'test-results');
+  
+  try {
+    // Check if source directory exists and has content
+    const sourceExists = await this.checkPathExists(sourceDir);
+    if (!sourceExists) {
+      this.log('No test-results directory found, skipping save');
+      return;
+    }
+
+    // Create destination directory
+    await this.createDirectoryIfNeeded(resultsDir);
+    
+    // Move files (using shell command with proper escaping)
+    await this.executeCommand(`cp -r "${sourceDir}"/* "${resultsDir}"/ && rm -rf "${sourceDir}"/*`);
+    
+    this.log(`Test results saved to: ${resultsDir}`);
+  } catch (error) {
+    this.log(`Failed to save test results: ${error.message}`);
+  }
+}
+ 
+  async runCycle(testSuite) {
+    if (this.isCycleRunning) {
+      this.log('Previous cycle still running, skipping this interval...');
+      return;
+    }
+    this.isCycleRunning = true; // Set flag
+
+    try{
+
+      const cycleStart = new Date();
+      this.log(`Starting new cycle at ${cycleStart.toISOString()}`);
+    
       // Step 1: Clone/update WP Rocket
       await this.cloneOrUpdateWPRocket();
       
       // Step 2: Create ZIP
-      const { zipPath, zipName } = await this.zipWPRocket();
+      const zipPath = await this.zipWPRocket();
       
       // Step 3: Move ZIP to plugin directory
-      await this.moveZipToPlugin(zipPath, zipName);
+      await this.moveZipToPlugin(zipPath);
       
       // Step 4: Update E2E repo
       await this.updateE2ERepo();
       
-      // Step 5: Run healthcheck
-      const result = await this.runHealthcheck();
+      // Step 5: Run the test suite
+      const result = await this.runE2ETests(testSuite);
       
       // Step 6: Check exit code and send notification if needed
-      var errorMessage = '';
+      let slackMessage = '';
       if (result.code === 0) {
-        this.log('✅ Healthcheck passed successfully');
-        errorMessage = `✅ WP Rocket E2E Healthcheck Ran Successfully!`;
+        this.log(`✅ E2E tests ${testSuite} passed successfully`);
+        slackMessage = `✅ WP Rocket E2E tests ${testSuite} Ran Successfully!`;
       } else {
-        this.log('❌ Healthcheck failed');
-        errorMessage = `❌ WP Rocket E2E Healthcheck Failed!`;
+        this.log(`❌ E2E tests ${testSuite} failed`);
+        slackMessage = `❌ WP Rocket E2E tests ${testSuite} Failed!`;
       }
-      await this.sendSlackMessage(errorMessage);
+      await this.sendSlackMessage(slackMessage);
       
+      // Step 7: Maintain test results
+      await this.deleteOldTestResults();
+      await this.saveTestResults();
+
       const cycleEnd = new Date();
       const duration = cycleEnd - cycleStart;
       this.log(`Cycle completed in ${duration}ms`);
-      
+
     } catch (error) {
       this.log(`❌ Cycle failed with error: ${error.message}`);
       const errorMessage = `❌ WP Rocket Monitor Script Error!`;
       await this.sendSlackMessage(errorMessage);
+
+    } finally {
+      this.isCycleRunning = false; // Reset flag
     }
   }
 
-  async start() {
+  async start(testSuite) {
     if (this.isRunning) {
       this.log('Monitor is already running');
       return;
     }
 
     this.isRunning = true;
-    this.log('🚀 Starting WP Rocket Monitor...');
+    this.log(`🚀 Starting Rocket E2E Monitor for ${testSuite}...`);
     
     // Validate configuration
     if (!await this.checkPathExists(CONFIG.E2E_DIR)) {
@@ -315,12 +374,12 @@ class WPRocketMonitor {
     }
 
     // Run first cycle immediately
-    await this.runCycle();
+    await this.runCycle(testSuite);
     
     // Set up recurring cycles
     this.intervalId = setInterval(async () => {
       if (this.isRunning) {
-        await this.runCycle();
+        await this.runCycle(testSuite);
       }
     }, CONFIG.LOOP_INTERVAL);
     
@@ -330,6 +389,7 @@ class WPRocketMonitor {
   async stop() {
     this.log('Stopping WP Rocket Monitor...');
     this.isRunning = false;
+    this.isCycleRunning = false; // Reset cycle flag
     
     if (this.intervalId) {
       clearInterval(this.intervalId);
@@ -353,7 +413,8 @@ process.on('SIGTERM', async () => {
 });
 
 // Start the monitor
-monitor.start().catch((error) => {
+const testSuite = process.argv[2] || 'test:e2e';
+monitor.start(testSuite).catch((error) => {
   console.error('Failed to start monitor:', error.message);
   process.exit(1);
 });
