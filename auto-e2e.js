@@ -12,7 +12,7 @@ const BASE_DIR = path.dirname(path.dirname(__filename));
 // Simple synchronous .env loader
 function loadEnv() {
   try {
-    const envPath = `${BASE_DIR}/auto-e2e/.env`;
+    const envPath = `${BASE_DIR}/.env`;
     const envFile = fssync.readFileSync(envPath, 'utf8');
     
     envFile.split('\n').forEach(line => {
@@ -348,8 +348,7 @@ async saveTestResults() {
       }
       // Add SCP download command if results were saved to facilitate downloading
       if (resultTimestamp) {
-        const timestamp = path.basename(savedResultsPath);
-        slackMessage += `\n\nDownload test report:\n\`\`\`scp auto-e2e-wpr@xx.xx.xx.xx:~/wp-rocket-e2e/test-results-storage/${timestamp}/cucumber-report.html ${timestamp}.html\`\`\``;
+        slackMessage += `\n\nDownload test report:\n\`\`\`scp auto-e2e-wpr@xx.xx.xx.xx:~/wp-rocket-e2e/test-results-storage/${resultTimestamp}/cucumber-report.html ${resultTimestamp}.html\`\`\``;
       }
 
       await this.sendSlackMessage(slackMessage);
