@@ -174,7 +174,11 @@ class AutoE2ERunner {
     await this.executeCommand(`chmod +x ${compileScript}`);
     
     // Run the compile script
-    await this.executeCommand(`bash ${compileScript}`, CONFIG.WORK_DIR);
+    if (this.pluginName === CONFIG.BACKWPUP_NAME) {
+      await this.executeCommand(`bash ${compileScript} --ver 5.99.99`, CONFIG.WORK_DIR);
+    } else {
+      await this.executeCommand(`bash ${compileScript}`, CONFIG.WORK_DIR);
+    }
     
     this.log('Checking for generated ZIP file...');
     let zipPath = path.join(this.compiledZipFolder, this.compiledZipName);
