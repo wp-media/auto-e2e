@@ -483,7 +483,7 @@ class AutoE2ERunner {
   async analyzeCucumberReport(filePath) {
     try {
         // Read and parse the JSON file
-        const jsonData = fs.readFileSync(filePath, 'utf8');
+        const jsonData = fssync.readFileSync(filePath, 'utf8');
         const report = JSON.parse(jsonData);
         
         let successfulTests = 0;
