@@ -407,7 +407,7 @@ class AutoE2ERunner {
 
       // Step 7: Analyze report and send notification if needed
       //Analyze cucumber report using analyzeCucumberReport
-      const jsonReportPath = path.join(RESULTS_DIR, resultTimestamp, 'cucumber-report.json');
+      const jsonReportPath = path.join(CONFIG.RESULTS_DIR, resultTimestamp, 'cucumber-report.json');
       const reportAnalysis = await this.analyzeCucumberReport(jsonReportPath);
       
       let slackMessage = '';
