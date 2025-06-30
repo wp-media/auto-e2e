@@ -58,7 +58,7 @@ const CONFIG = {
   BACKWPUP_COMPILED_ZIP_NAME_START: `backwpup-pro-en-`,
   // ZIP File for E2E
   WP_ROCKET_ZIP_FOR_E2E: `new_release.zip`,
-  BACKWPUP_ZIP_FOR_E2E: `backwpup.zip`,
+  BACKWPUP_ZIP_FOR_E2E: `backwpup-pro.zip`,
   
 
   // Slack webhook URL - you'll need to set this up
