@@ -49,8 +49,8 @@ const CONFIG = {
   BACKWPUP_NAME: 'BackWPUp',
 
   //compile script
-  WP_ROCKET_COMPILE_SCRIPT: `${BASE_DIR}/compile-wp-rocket.sh`,
-  BACKWPUP_COMPILE_SCRIPT: `${BASE_DIR}/compile-backwpup.sh`,
+  WP_ROCKET_COMPILE_SCRIPT: `compile-wp-rocket.sh`,
+  BACKWPUP_COMPILE_SCRIPT: `compile-backwpup.sh`,
   // ZIP File after compilation
   WP_ROCKET_COMPILED_ZIP_FOLDER: `${BASE_DIR}`,
   WP_ROCKET_COMPILED_ZIP_NAME: `wp-rocket.zip`,
