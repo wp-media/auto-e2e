@@ -5,13 +5,14 @@ const fssync = require('fs');
 const path = require('path');
 const { spawn, exec } = require('child_process');
 const { promisify } = require('util');
+const { time } = require('console');
 
 
 const BASE_DIR = path.dirname(path.dirname(__filename));
 // Simple synchronous .env loader
 function loadEnv() {
   try {
-    const envPath = `${BASE_DIR}/auto-e2e/.env`;
+    const envPath = `${BASE_DIR}/.env`;
     const envFile = fssync.readFileSync(envPath, 'utf8');
     
     envFile.split('\n').forEach(line => {
@@ -298,8 +299,10 @@ async saveTestResults() {
     await this.executeCommand(`cp -r "${sourceDir}"/* "${resultsDir}"/ && rm -rf "${sourceDir}"/*`);
     
     this.log(`Test results saved to: ${resultsDir}`);
+    return timestamp;
   } catch (error) {
     this.log(`Failed to save test results: ${error.message}`);
+    return null;
   }
 }
  
@@ -330,7 +333,11 @@ async saveTestResults() {
       // Step 5: Run the test suite
       const result = await this.runE2ETests(testSuite);
       
-      // Step 6: Check exit code and send notification if needed
+      // Step 6: Maintain test results
+      await this.deleteOldTestResults();
+      const resultTimestamp = await this.saveTestResults();
+
+      // Step 7: Check exit code and send notification if needed
       let slackMessage = '';
       if (result.code === 0) {
         this.log(`✅ E2E tests ${testSuite} passed successfully`);
@@ -339,11 +346,12 @@ async saveTestResults() {
         this.log(`❌ E2E tests ${testSuite} failed`);
         slackMessage = `❌ WP Rocket E2E tests ${testSuite} Failed!`;
       }
+      // Add SCP download command if results were saved to facilitate downloading
+      if (resultTimestamp) {
+        slackMessage += `\n\nDownload test report:\n\`\`\`scp auto-e2e-wpr@xx.xx.xx.xx:~/wp-rocket-e2e/test-results-storage/${resultTimestamp}/cucumber-report.html ${resultTimestamp}.html\`\`\``;
+      }
+
       await this.sendSlackMessage(slackMessage);
-      
-      // Step 7: Maintain test results
-      await this.deleteOldTestResults();
-      await this.saveTestResults();
 
       const cycleEnd = new Date();
       const duration = cycleEnd - cycleStart;
