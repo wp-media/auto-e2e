@@ -6,6 +6,7 @@ const path = require('path');
 const { spawn, exec } = require('child_process');
 const { promisify } = require('util');
 const { time } = require('console');
+const os = require('os');
 
 
 const BASE_DIR = path.dirname(path.dirname(__filename));
@@ -34,13 +35,32 @@ const CONFIG = {
   // Paths
   WORK_DIR: BASE_DIR,
   WP_ROCKET_CLONE_DIR: `${BASE_DIR}/wp-rocket`,
+  BACKWPUP_CLONE_DIR: `${BASE_DIR}/backwpup-pro`,
   E2E_DIR: `${BASE_DIR}/wp-rocket-e2e`,
   PLUGIN_DIR: `${BASE_DIR}/wp-rocket-e2e/plugin`,
   RESULTS_DIR: `${BASE_DIR}/wp-rocket-e2e/test-results-storage`,
   
   // GitHub
-  WP_ROCKET_REPO: 'https://github.com/wp-media/wp-rocket.git', // Update with actual repo URL
+  WP_ROCKET_REPO: 'https://github.com/wp-media/wp-rocket.git',
+  BACKWPUP_REPO: 'https://github.com/wp-media/backwpup-pro.git',
   
+  // Plugin Names
+  WP_ROCKET_NAME: 'WP Rocket',
+  BACKWPUP_NAME: 'BackWPUp',
+
+  //compile script
+  WP_ROCKET_COMPILE_SCRIPT: `compile-wp-rocket.sh`,
+  BACKWPUP_COMPILE_SCRIPT: `compile-backwpup.sh`,
+  // ZIP File after compilation
+  WP_ROCKET_COMPILED_ZIP_FOLDER: `${BASE_DIR}`,
+  WP_ROCKET_COMPILED_ZIP_NAME: `wp-rocket.zip`,
+  BACKWPUP_COMPILED_ZIP_FOLDER:`${BASE_DIR}/backwpup-pro/`,
+  BACKWPUP_COMPILED_ZIP_NAME_START: `backwpup-pro-en-`,
+  // ZIP File for E2E
+  WP_ROCKET_ZIP_FOR_E2E: `new_release.zip`,
+  BACKWPUP_ZIP_FOR_E2E: `backwpup-pro.zip`,
+  
+
   // Slack webhook URL - you'll need to set this up
   SLACK_WEBHOOK_URL: process.env.SLACK_WEBHOOK_URL || '',
   
@@ -48,10 +68,10 @@ const CONFIG = {
   LOOP_INTERVAL: 5 * 60 * 1000, // 5 minutes in milliseconds
   
   // Logging
-  LOG_FILE: `${BASE_DIR}/wp-rocket-monitor.log`
+  LOG_FILE: `${BASE_DIR}/auto-e2e.log`
 };
 
-class WPRocketMonitor {
+class AutoE2ERunner {
   constructor() {
     this.isRunning = false;
     this.isCycleRunning = false;
@@ -107,40 +127,42 @@ class WPRocketMonitor {
     }
   }
 
-  async cloneOrUpdateWPRocket() {
-    this.log('Cloning/updating WP Rocket repository...');
+  async cloneOrUpdatePlugin() {
+    this.log(`Cloning/updating ${this.pluginName} repository...`);
     
-    const exists = await this.checkPathExists(CONFIG.WP_ROCKET_CLONE_DIR);
+    const exists = await this.checkPathExists(this.cloneDir);
     
     if (exists) {
       // Update existing repo
-      await this.executeCommand('git fetch origin', CONFIG.WP_ROCKET_CLONE_DIR);
-      await this.executeCommand('git reset --hard origin/develop', CONFIG.WP_ROCKET_CLONE_DIR); // or main/master
+      await this.executeCommand('git fetch origin', this.cloneDir);
+      await this.executeCommand('git reset --hard origin/develop', this.cloneDir); // or main/master
     } else {
       // Clone fresh
-      await this.executeCommand(`git clone ${CONFIG.WP_ROCKET_REPO} ${CONFIG.WP_ROCKET_CLONE_DIR}`);
+      await this.executeCommand(`git clone ${this.githubRepo} ${this.cloneDir}`);
     }
   }
 
-  async zipWPRocket() {
+  async zipPlugin() {
     try {
-      // Replace licence-data.php with the backup version
-      this.log('Replacing licence-data.php with pre-filled version...');
-      const sourceFile = path.join(CONFIG.WORK_DIR, 'licence-data.php.bak');
-      const targetFile = path.join(CONFIG.WP_ROCKET_CLONE_DIR, 'licence-data.php');
-      
-      // Check if backup file exists
-      const backupExists = await this.checkPathExists(sourceFile);
-      if (!backupExists) {
-        throw new Error(`Pre-filled licence file not found: ${sourceFile}`);
-      }
+      if (CONFIG.WP_ROCKET_NAME === this.pluginName) {
+        // Replace licence-data.php with the backup version
+        this.log('Replacing licence-data.php with pre-filled version...');
+        const sourceFile = path.join(CONFIG.WORK_DIR, 'licence-data.php.bak');
+        const targetFile = path.join(this.cloneDir, 'licence-data.php');
+        
+        // Check if backup file exists
+        const backupExists = await this.checkPathExists(sourceFile);
+        if (!backupExists) {
+          throw new Error(`Pre-filled licence file not found: ${sourceFile}`);
+        }
 
-    await this.executeCommand(`cp ${sourceFile} ${targetFile}`);
-    this.log('Successfully replaced licence-data.php');
+        await this.executeCommand(`cp ${sourceFile} ${targetFile}`);
+        this.log('Successfully replaced licence-data.php');
+    }
     
     // Run the compile script
-    this.log('Running compile-wp-rocket.sh script...');
-    const compileScript = path.join(CONFIG.WORK_DIR, 'compile-wp-rocket.sh');
+    this.log(`Running ${this.compileScript} script...`);
+    const compileScript = path.join(CONFIG.WORK_DIR, this.compileScript);
     
     // Check if compile script exists
     const scriptExists = await this.checkPathExists(compileScript);
@@ -152,12 +174,22 @@ class WPRocketMonitor {
     await this.executeCommand(`chmod +x ${compileScript}`);
     
     // Run the compile script
-    await this.executeCommand(`bash ${compileScript}`, CONFIG.WORK_DIR);
+    if (this.pluginName === CONFIG.BACKWPUP_NAME) {
+      await this.executeCommand(`bash ${compileScript} --ver 5.99.99`, CONFIG.WORK_DIR);
+    } else {
+      await this.executeCommand(`bash ${compileScript}`, CONFIG.WORK_DIR);
+    }
     
     this.log('Checking for generated ZIP file...');
-    const zipPath = path.join(CONFIG.WORK_DIR, 'wp-rocket.zip');
+    let zipPath = path.join(this.compiledZipFolder, this.compiledZipName);
     if (!fssync.existsSync(zipPath)) {
-        throw new Error('No WP Rocket ZIP file found after compilation');
+        // Find a file that starts with the compiled zip name
+        const files = fssync.readdirSync(this.compiledZipFolder);
+        const matchingFiles = files.filter(file => file.startsWith(this.compiledZipName));
+        if (matchingFiles.length == 0) {
+          throw new Error('No WP Rocket ZIP file found after compilation');
+        }
+        zipPath = path.join(this.compiledZipFolder, matchingFiles[0]);
     }
     
     const zipName = path.basename(zipPath);
@@ -166,7 +198,7 @@ class WPRocketMonitor {
     return zipPath;
     
   } catch (error) {
-    this.log(`Failed to compile WP Rocket: ${error.message}`);
+    this.log(`Failed to compile ${this.pluginName}: ${error.message}`);
     throw error;
   }
 }
@@ -178,12 +210,12 @@ class WPRocketMonitor {
     
     // Remove old wp-rocket zips to avoid clutter
     try {
-      await this.executeCommand(`rm -f ${CONFIG.PLUGIN_DIR}/new_release.zip`);
+      await this.executeCommand(`rm -f ${CONFIG.PLUGIN_DIR}/${this.zipForE2E}`);
     } catch (error) {
       this.log('No old ZIP files to remove (or removal failed)');
     }
     
-    const destinationPath = path.join(CONFIG.PLUGIN_DIR, 'new_release.zip');
+    const destinationPath = path.join(CONFIG.PLUGIN_DIR, this.zipForE2E);
     await this.executeCommand(`mv ${zipPath} ${destinationPath}`);
     
     return destinationPath;
@@ -238,74 +270,107 @@ class WPRocketMonitor {
     }
   }
 
-async deleteOldTestResults() {
-  // Delete test results folder older than 4 days
-  this.log('Deleting old test results...');
-  
-  try {
-    // Check if results directory exists
-    const dirExists = await this.checkPathExists(CONFIG.RESULTS_DIR);
-    if (!dirExists) {
-      this.log('Test results storage directory does not exist, skipping cleanup');
-      return;
-    }
-
-    const files = await fs.readdir(CONFIG.RESULTS_DIR);
-    const now = Date.now();
-    const fourDaysAgo = now - (4 * 24 * 60 * 60 * 1000); // 4 days in milliseconds
+  async deleteOldTestResults() {
+    // Delete test results folder older than 4 days
+    this.log('Deleting old test results...');
     
-    let deletedCount = 0;
-    
-    for (const file of files) {
-      const filePath = path.join(CONFIG.RESULTS_DIR, file);
-      
-      try {
-        const stats = await fs.stat(filePath);
-        if (stats.isDirectory() && stats.mtime.getTime() < fourDaysAgo) {
-          await fs.rm(filePath, { recursive: true, force: true });
-          this.log(`Deleted old test result: ${file}`);
-          deletedCount++;
-        }
-      } catch (statError) {
-        this.log(`Could not process file ${file}: ${statError.message}`);
+    try {
+      // Check if results directory exists
+      const dirExists = await this.checkPathExists(CONFIG.RESULTS_DIR);
+      if (!dirExists) {
+        this.log('Test results storage directory does not exist, skipping cleanup');
+        return;
       }
-    }
-    
-    this.log(`Old test results cleanup completed. Deleted ${deletedCount} directories.`);
-  } catch (error) {
-    this.log(`Failed to delete old test results: ${error.message}`);
-  }
-}
 
-async saveTestResults() {
-  this.log('Saving test results...');
-  
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const resultsDir = path.join(CONFIG.RESULTS_DIR, timestamp);
-  const sourceDir = path.join(CONFIG.E2E_DIR, 'test-results');
-  
-  try {
-    // Check if source directory exists and has content
-    const sourceExists = await this.checkPathExists(sourceDir);
-    if (!sourceExists) {
-      this.log('No test-results directory found, skipping save');
-      return;
+      const files = await fs.readdir(CONFIG.RESULTS_DIR);
+      const now = Date.now();
+      const fourDaysAgo = now - (4 * 24 * 60 * 60 * 1000); // 4 days in milliseconds
+      
+      let deletedCount = 0;
+      
+      for (const file of files) {
+        const filePath = path.join(CONFIG.RESULTS_DIR, file);
+        
+        try {
+          const stats = await fs.stat(filePath);
+          if (stats.isDirectory() && stats.mtime.getTime() < fourDaysAgo) {
+            await fs.rm(filePath, { recursive: true, force: true });
+            this.log(`Deleted old test result: ${file}`);
+            deletedCount++;
+          }
+        } catch (statError) {
+          this.log(`Could not process file ${file}: ${statError.message}`);
+        }
+      }
+      
+      this.log(`Old test results cleanup completed. Deleted ${deletedCount} directories.`);
+    } catch (error) {
+      this.log(`Failed to delete old test results: ${error.message}`);
     }
-
-    // Create destination directory
-    await this.createDirectoryIfNeeded(resultsDir);
-    
-    // Move files (using shell command with proper escaping)
-    await this.executeCommand(`cp -r "${sourceDir}"/* "${resultsDir}"/ && rm -rf "${sourceDir}"/*`);
-    
-    this.log(`Test results saved to: ${resultsDir}`);
-    return timestamp;
-  } catch (error) {
-    this.log(`Failed to save test results: ${error.message}`);
-    return null;
   }
-}
+
+  async saveTestResults() {
+    this.log('Saving test results...');
+    
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const resultsDir = path.join(CONFIG.RESULTS_DIR, timestamp);
+    const sourceDir = path.join(CONFIG.E2E_DIR, 'test-results');
+    
+    try {
+      // Check if source directory exists and has content
+      const sourceExists = await this.checkPathExists(sourceDir);
+      if (!sourceExists) {
+        this.log('No test-results directory found, skipping save');
+        return;
+      }
+
+      // Create destination directory
+      await this.createDirectoryIfNeeded(resultsDir);
+      
+      // Move files (using shell command with proper escaping)
+      await this.executeCommand(`cp -r "${sourceDir}"/* "${resultsDir}"/ && rm -rf "${sourceDir}"/*`);
+      
+      this.log(`Test results saved to: ${resultsDir}`);
+      return timestamp;
+    } catch (error) {
+      this.log(`Failed to save test results: ${error.message}`);
+      return null;
+    }
+  }
  
+  async configureForTestSuite(testSuite) {
+    this.log(`Configuring for test suite: ${testSuite}`);
+    // Identify which plugin is being tested
+    let pluginUnderTest = CONFIG.WP_ROCKET_NAME;
+    if (testSuite.startsWith('test:bwpup')) {
+      pluginUnderTest = CONFIG.BACKWPUP_NAME;
+    }
+
+    switch (pluginUnderTest) {
+      default:
+      case CONFIG.WP_ROCKET_NAME:
+        this.log(`Configuring for ${CONFIG.WP_ROCKET_NAME} tests...`);
+        this.cloneDir = CONFIG.WP_ROCKET_CLONE_DIR;
+        this.githubRepo = CONFIG.WP_ROCKET_REPO;
+        this.pluginName = CONFIG.WP_ROCKET_NAME;
+        this.compileScript = CONFIG.WP_ROCKET_COMPILE_SCRIPT;
+        this.compiledZipFolder = CONFIG.WP_ROCKET_COMPILED_ZIP_FOLDER;
+        this.compiledZipName = CONFIG.WP_ROCKET_COMPILED_ZIP_NAME;
+        this.zipForE2E = CONFIG.WP_ROCKET_ZIP_FOR_E2E;
+        break;
+      case CONFIG.BACKWPUP_NAME:
+        this.log(`Configuring for ${CONFIG.BACKWPUP_NAME} tests...`);
+        this.cloneDir = CONFIG.BACKWPUP_CLONE_DIR;
+        this.githubRepo = CONFIG.BACKWPUP_REPO;
+        this.pluginName = CONFIG.BACKWPUP_NAME;
+        this.compileScript = CONFIG.BACKWPUP_COMPILE_SCRIPT;
+        this.compiledZipFolder = CONFIG.BACKWPUP_COMPILED_ZIP_FOLDER;
+        this.compiledZipName = CONFIG.BACKWPUP_COMPILED_ZIP_NAME_START;
+        this.zipForE2E = CONFIG.BACKWPUP_ZIP_FOR_E2E;
+        break;
+    }
+  }
+
   async runCycle(testSuite) {
     if (this.isCycleRunning) {
       this.log('Previous cycle still running, skipping this interval...');
@@ -318,11 +383,14 @@ async saveTestResults() {
       const cycleStart = new Date();
       this.log(`Starting new cycle at ${cycleStart.toISOString()}`);
     
-      // Step 1: Clone/update WP Rocket
-      await this.cloneOrUpdateWPRocket();
+      // Configure for the specific test suite
+      await this.configureForTestSuite(testSuite);
+
+      // Step 1: Clone/update the plugin
+      await this.cloneOrUpdatePlugin();
       
       // Step 2: Create ZIP
-      const zipPath = await this.zipWPRocket();
+      const zipPath = await this.zipPlugin();
       
       // Step 3: Move ZIP to plugin directory
       await this.moveZipToPlugin(zipPath);
@@ -341,14 +409,15 @@ async saveTestResults() {
       let slackMessage = '';
       if (result.code === 0) {
         this.log(`✅ E2E tests ${testSuite} passed successfully`);
-        slackMessage = `✅ WP Rocket E2E tests ${testSuite} Ran Successfully!`;
+        slackMessage = `✅ Auto E2E tests ${testSuite} Ran Successfully!`;
       } else {
         this.log(`❌ E2E tests ${testSuite} failed`);
-        slackMessage = `❌ WP Rocket E2E tests ${testSuite} Failed!`;
+        slackMessage = `❌ Auto E2E tests ${testSuite} Failed!`;
       }
       // Add SCP download command if results were saved to facilitate downloading
       if (resultTimestamp) {
-        slackMessage += `\n\nDownload test report:\n\`\`\`scp auto-e2e-wpr@xx.xx.xx.xx:~/wp-rocket-e2e/test-results-storage/${resultTimestamp}/cucumber-report.html ${resultTimestamp}.html\`\`\``;
+        const username = os.userInfo().username;
+        slackMessage += `\n\nDownload test report:\n\`\`\`scp ${username}@xx.xx.xx.xx:~/wp-rocket-e2e/test-results-storage/${resultTimestamp}/cucumber-report.html ${resultTimestamp}.html\`\`\``;
       }
 
       await this.sendSlackMessage(slackMessage);
@@ -359,7 +428,7 @@ async saveTestResults() {
 
     } catch (error) {
       this.log(`❌ Cycle failed with error: ${error.message}`);
-      const errorMessage = `❌ WP Rocket Monitor Script Error!`;
+      const errorMessage = `❌ Auto E2E Script Error!`;
       await this.sendSlackMessage(errorMessage);
 
     } finally {
@@ -369,12 +438,12 @@ async saveTestResults() {
 
   async start(testSuite) {
     if (this.isRunning) {
-      this.log('Monitor is already running');
+      this.log('Auto E2E is already running');
       return;
     }
 
     this.isRunning = true;
-    this.log(`🚀 Starting Rocket E2E Monitor for ${testSuite}...`);
+    this.log(`🚀 Starting Auto E2E for ${testSuite}...`);
     
     // Validate configuration
     if (!await this.checkPathExists(CONFIG.E2E_DIR)) {
@@ -395,7 +464,7 @@ async saveTestResults() {
   }
 
   async stop() {
-    this.log('Stopping WP Rocket Monitor...');
+    this.log('Stopping Auto E2E...');
     this.isRunning = false;
     this.isCycleRunning = false; // Reset cycle flag
     
@@ -406,7 +475,7 @@ async saveTestResults() {
 }
 
 // Handle process termination gracefully
-const monitor = new WPRocketMonitor();
+const monitor = new AutoE2ERunner();
 
 process.on('SIGINT', async () => {
   console.log('\nReceived SIGINT, shutting down gracefully...');
