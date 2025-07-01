@@ -405,14 +405,21 @@ class AutoE2ERunner {
       await this.deleteOldTestResults();
       const resultTimestamp = await this.saveTestResults();
 
-      // Step 7: Check exit code and send notification if needed
+      // Step 7: Analyze report and send notification if needed
+      //Analyze cucumber report using analyzeCucumberReport
+      const jsonReportPath = path.join(CONFIG.RESULTS_DIR, resultTimestamp, 'cucumber-report.json');
+      const reportAnalysis = await this.analyzeCucumberReport(jsonReportPath);
+      
       let slackMessage = '';
-      if (result.code === 0) {
+      if (reportAnalysis.failedTests === 0 && reportAnalysis.successfulTests > 0) {
         this.log(`✅ E2E tests ${testSuite} passed successfully`);
         slackMessage = `✅ Auto E2E tests ${testSuite} Ran Successfully!`;
+        slackMessage += `\n\nNumber of successful tests: ${reportAnalysis.successfulTests}`;
       } else {
         this.log(`❌ E2E tests ${testSuite} failed`);
         slackMessage = `❌ Auto E2E tests ${testSuite} Failed!`;
+        slackMessage += `\n\nNumber of failed tests: ${reportAnalysis.failedTests}`;
+        slackMessage += `\n\nFailed tests:\n${reportAnalysis.failedTestNames.join('\n')}`;
       }
       // Add SCP download command if results were saved to facilitate downloading
       if (resultTimestamp) {
@@ -470,6 +477,119 @@ class AutoE2ERunner {
     
     if (this.intervalId) {
       clearInterval(this.intervalId);
+    }
+  }
+
+  async analyzeCucumberReport(filePath) {
+    try {
+        // Read and parse the JSON file
+        const jsonData = fssync.readFileSync(filePath, 'utf8');
+        const report = JSON.parse(jsonData);
+        
+        let successfulTests = 0;
+        let failedTests = 0;
+        const failedTestNames = [];
+        
+        console.log('=== CUCUMBER TEST REPORT ANALYSIS ===');
+        console.log(`Found ${report.length} feature(s)\n`);
+        
+        // Iterate through each feature
+        report.forEach((feature, featureIndex) => {
+            // Check if feature has elements (scenarios)
+            if (!feature.elements || !Array.isArray(feature.elements)) {
+                return;
+            }
+            
+            // Iterate through each scenario in the feature
+            feature.elements.forEach(scenario => {
+                // Skip background steps (they're not actual tests)
+                if (scenario.type === 'background') {
+                    return;
+                }
+                
+                const testName = scenario.name || scenario.id || 'Unnamed Test';
+                const fullTestName = `${feature.name || 'Unnamed Feature'} - ${testName}`;
+                
+                // Check if all steps in the scenario passed
+                let testPassed = true;
+                let totalSteps = 0;
+                let passedSteps = 0;
+                let failedSteps = 0;
+                let skippedSteps = 0;
+                
+                if (scenario.steps && Array.isArray(scenario.steps)) {
+                    scenario.steps.forEach(step => {
+                        totalSteps++;
+                        
+                        if (step.result && step.result.status) {
+                            switch (step.result.status) {
+                                case 'passed':
+                                    passedSteps++;
+                                    break;
+                                case 'failed':
+                                    failedSteps++;
+                                    testPassed = false;
+                                    break;
+                                case 'skipped':
+                                    skippedSteps++;
+                                    testPassed = false;
+                                    break;
+                                default:
+                                    // undefined, pending, etc.
+                                    testPassed = false;
+                                    break;
+                            }
+                        } else {
+                            // No result means the step didn't run properly
+                            testPassed = false;
+                        }
+                    });
+                }
+                
+                // Count and categorize the test
+                if (testPassed && totalSteps > 0) {
+                    successfulTests++;
+                } else {
+                    failedTests++;
+                    failedTestNames.push(fullTestName);
+                    console.log(`  ❌ ${testName} (${passedSteps} passed, ${failedSteps} failed, ${skippedSteps} skipped)`);
+                }
+            });
+        });
+        
+        // Display final results
+        console.log('\n=== FINAL RESULTS ===');
+        console.log(`Total Tests: ${successfulTests + failedTests}`);
+        console.log(`Successful Tests: ${successfulTests}`);
+        console.log(`Failed Tests: ${failedTests}`);
+        console.log('');
+        
+        if (failedTestNames.length > 0) {
+            console.log('=== FAILED TESTS ===');
+            failedTestNames.forEach((testName, index) => {
+                console.log(`${index + 1}. ${testName}`);
+            });
+        } else {
+            console.log('🎉 All tests passed!');
+        }
+        
+        return {
+            totalTests: successfulTests + failedTests,
+            successfulTests,
+            failedTests,
+            failedTestNames
+        };
+        
+    } catch (error) {
+        console.error('Error analyzing cucumber report:', error.message);
+        
+        if (error.message.includes('JSON')) {
+            console.error('Make sure the file is valid JSON format');
+        } else if (error.code === 'ENOENT') {
+            console.error('File not found. Check the file path.');
+        }
+        
+        return null;
     }
   }
 }
