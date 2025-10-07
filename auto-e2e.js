@@ -383,50 +383,50 @@ class AutoE2ERunner {
       const cycleStart = new Date();
       this.log(`Starting new cycle at ${cycleStart.toISOString()}`);
     
-      // // Configure for the specific test suite
-      // await this.configureForTestSuite(testSuite);
+      // Configure for the specific test suite
+      await this.configureForTestSuite(testSuite);
 
-      // // Step 1: Clone/update the plugin
-      // await this.cloneOrUpdatePlugin();
+      // Step 1: Clone/update the plugin
+      await this.cloneOrUpdatePlugin();
       
-      // // Step 2: Create ZIP
-      // const zipPath = await this.zipPlugin();
+      // Step 2: Create ZIP
+      const zipPath = await this.zipPlugin();
       
-      // // Step 3: Move ZIP to plugin directory
-      // await this.moveZipToPlugin(zipPath);
+      // Step 3: Move ZIP to plugin directory
+      await this.moveZipToPlugin(zipPath);
       
-      // // Step 4: Update E2E repo
-      // await this.updateE2ERepo();
+      // Step 4: Update E2E repo
+      await this.updateE2ERepo();
       
-      // // Step 5: Run the test suite
-      // const result = await this.runE2ETests(testSuite);
+      // Step 5: Run the test suite
+      const result = await this.runE2ETests(testSuite);
       
-      // // Step 6: Maintain test results
-      // await this.deleteOldTestResults();
-      // const resultTimestamp = await this.saveTestResults();
+      // Step 6: Maintain test results
+      await this.deleteOldTestResults();
+      const resultTimestamp = await this.saveTestResults();
 
-      // // Step 7: Analyze report and send notification if needed
-      // //Analyze cucumber report using analyzeCucumberReport
-      // const jsonReportPath = path.join(CONFIG.RESULTS_DIR, resultTimestamp, 'cucumber-report.json');
-      // const reportAnalysis = await this.analyzeCucumberReport(jsonReportPath);
+      // Step 7: Analyze report and send notification if needed
+      //Analyze cucumber report using analyzeCucumberReport
+      const jsonReportPath = path.join(CONFIG.RESULTS_DIR, resultTimestamp, 'cucumber-report.json');
+      const reportAnalysis = await this.analyzeCucumberReport(jsonReportPath);
       
-      // let slackMessage = '';
-      // if (reportAnalysis.failedTests === 0 && reportAnalysis.successfulTests > 0) {
-      //   this.log(`✅ E2E tests ${testSuite} passed successfully`);
-      //   slackMessage = `✅ Auto E2E tests ${testSuite} Ran Successfully!`;
-      //   slackMessage += `\n\nNumber of successful tests: ${reportAnalysis.successfulTests}`;
-      // } else {
-      //   this.log(`❌ E2E tests ${testSuite} failed`);
-      //   slackMessage = `❌ Auto E2E tests ${testSuite} Failed!`;
-      //   slackMessage += `\n\nNumber of failed tests: ${reportAnalysis.failedTests}`;
-      //   slackMessage += `\n\nFailed tests:\n${reportAnalysis.failedTestNames.join('\n')}`;
-      // }
-      // // Add SCP download command if results were saved to facilitate downloading
-      // if (resultTimestamp) {
+      let slackMessage = '';
+      if (reportAnalysis.failedTests === 0 && reportAnalysis.successfulTests > 0) {
+        this.log(`✅ E2E tests ${testSuite} passed successfully`);
+        slackMessage = `✅ Auto E2E tests ${testSuite} Ran Successfully!`;
+        slackMessage += `\n\nNumber of successful tests: ${reportAnalysis.successfulTests}`;
+      } else {
+        this.log(`❌ E2E tests ${testSuite} failed`);
+        slackMessage = `❌ Auto E2E tests ${testSuite} Failed!`;
+        slackMessage += `\n\nNumber of failed tests: ${reportAnalysis.failedTests}`;
+        slackMessage += `\n\nFailed tests:\n${reportAnalysis.failedTestNames.join('\n')}`;
+      }
+      // Add SCP download command if results were saved to facilitate downloading
+      if (resultTimestamp) {
         const username = os.userInfo().username;
         slackMessage += `\n\nDownload test report:\n\`\`\`scp ${username}@xx.xx.xx.xx:~/wp-rocket-e2e/test-results-storage/${resultTimestamp}/cucumber-report.html ${resultTimestamp}.html\`\`\``;
-      // }
-
+      }
+      slackMessage = slackMessage.replace(/'/g, "'\\''");
       await this.sendSlackMessage(slackMessage);
 
       const cycleEnd = new Date();
