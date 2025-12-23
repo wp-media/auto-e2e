@@ -426,7 +426,7 @@ class AutoE2ERunner {
         const username = os.userInfo().username;
         slackMessage += `\n\nDownload test report:\n\`\`\`scp ${username}@xx.xx.xx.xx:~/wp-rocket-e2e/test-results-storage/${resultTimestamp}/cucumber-report.html ${resultTimestamp}.html\`\`\``;
       }
-
+      slackMessage = slackMessage.replace(/'/g, "'\\''");
       await this.sendSlackMessage(slackMessage);
 
       const cycleEnd = new Date();
