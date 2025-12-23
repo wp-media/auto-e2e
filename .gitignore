@@ -1,0 +1,11 @@
+# Environment variables
+.env
+
+# Temporary files
+.datator-payload.json
+
+# Node modules (if any)
+node_modules/
+
+# Logs
+*.log

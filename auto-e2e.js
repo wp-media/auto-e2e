@@ -63,10 +63,14 @@ const CONFIG = {
 
   // Slack webhook URL - you'll need to set this up
   SLACK_WEBHOOK_URL: process.env.SLACK_WEBHOOK_URL || '',
-  
+
+  // Datator API configuration
+  DATATOR_API_URL: process.env.DATATOR_API_URL || 'https://datator.wp-media.me/e2e_tests/results/',
+  DATATOR_API_KEY: process.env.DATATOR_API_KEY || '',
+
   // Timing
   LOOP_INTERVAL: 5 * 60 * 1000, // 5 minutes in milliseconds
-  
+
   // Logging
   LOG_FILE: `${BASE_DIR}/auto-e2e.log`
 };
@@ -263,10 +267,54 @@ class AutoE2ERunner {
       await this.executeCommand(
         `curl -X POST -H 'Content-type: application/json' --data '${JSON.stringify(payload)}' ${CONFIG.SLACK_WEBHOOK_URL}`
       );
-      
+
       this.log('Slack notification sent successfully');
     } catch (error) {
       this.log(`Failed to send Slack notification: ${error.message}`);
+    }
+  }
+
+  async sendDataToDatator(reportAnalysis, testSuite, plugin, timestamp, gitCommit = null, duration = null) {
+    if (!CONFIG.DATATOR_API_KEY) {
+      this.log('No Datator API key configured, skipping data submission');
+      return;
+    }
+
+    if (!reportAnalysis) {
+      this.log('No report analysis data available, skipping Datator submission');
+      return;
+    }
+
+    try {
+      // Prepare payload for Datator
+      const payload = {
+        plugin: plugin,
+        test_suite: testSuite,
+        timestamp: timestamp,
+        total_tests: reportAnalysis.totalTests,
+        successful_tests: reportAnalysis.successfulTests,
+        failed_tests: reportAnalysis.failedTests,
+        git_commit: gitCommit,
+        test_duration_seconds: duration,
+        test_cases: reportAnalysis.testCases || []
+      };
+
+      // Write payload to temp file to avoid issues with special characters in curl
+      const tempFile = path.join(CONFIG.WORK_DIR, '.datator-payload.json');
+      await fs.writeFile(tempFile, JSON.stringify(payload));
+
+      // Send to Datator using curl with file upload
+      await this.executeCommand(
+        `curl -X POST -H 'Content-Type: application/json' -H 'X-API-Key: ${CONFIG.DATATOR_API_KEY}' --data @${tempFile} ${CONFIG.DATATOR_API_URL}`
+      );
+
+      // Clean up temp file
+      await fs.unlink(tempFile);
+
+      this.log('Test results sent to Datator successfully');
+    } catch (error) {
+      this.log(`Failed to send data to Datator: ${error.message}`);
+      // Don't fail the whole process if Datator submission fails
     }
   }
 
@@ -429,9 +477,35 @@ class AutoE2ERunner {
 
       await this.sendSlackMessage(slackMessage);
 
+      // Step 8: Send data to Datator
+      // Map plugin name to plugin code for Datator
+      const pluginCode = this.pluginName === CONFIG.WP_ROCKET_NAME ? 'wp_rocket' : 'backwpup';
+
+      // Get git commit hash from the plugin directory
+      let gitCommit = null;
+      try {
+        const gitHashCommand = `cd ${this.cloneDir} && git rev-parse HEAD`;
+        const gitHashResult = await this.executeCommand(gitHashCommand);
+        gitCommit = gitHashResult.stdout ? gitHashResult.stdout.trim() : null;
+      } catch (error) {
+        this.log(`Could not get git commit hash: ${error.message}`);
+      }
+
       const cycleEnd = new Date();
-      const duration = cycleEnd - cycleStart;
-      this.log(`Cycle completed in ${duration}ms`);
+      const durationMs = cycleEnd - cycleStart;
+      const durationSeconds = Math.floor(durationMs / 1000);
+
+      // Send to Datator with ISO timestamp
+      await this.sendDataToDatator(
+        reportAnalysis,
+        testSuite,
+        pluginCode,
+        cycleStart.toISOString(),
+        gitCommit,
+        durationSeconds
+      );
+
+      this.log(`Cycle completed in ${durationMs}ms`);
 
     } catch (error) {
       this.log(`❌ Cycle failed with error: ${error.message}`);
@@ -485,42 +559,46 @@ class AutoE2ERunner {
         // Read and parse the JSON file
         const jsonData = fssync.readFileSync(filePath, 'utf8');
         const report = JSON.parse(jsonData);
-        
+
         let successfulTests = 0;
         let failedTests = 0;
         const failedTestNames = [];
-        
+        const testCases = []; // Array to store individual test case details
+
         console.log('=== CUCUMBER TEST REPORT ANALYSIS ===');
         console.log(`Found ${report.length} feature(s)\n`);
-        
+
         // Iterate through each feature
-        report.forEach((feature, featureIndex) => {
+        report.forEach((feature) => {
             // Check if feature has elements (scenarios)
             if (!feature.elements || !Array.isArray(feature.elements)) {
                 return;
             }
-            
+
+            const featureName = feature.name || 'Unnamed Feature';
+
             // Iterate through each scenario in the feature
             feature.elements.forEach(scenario => {
                 // Skip background steps (they're not actual tests)
                 if (scenario.type === 'background') {
                     return;
                 }
-                
+
                 const testName = scenario.name || scenario.id || 'Unnamed Test';
-                const fullTestName = `${feature.name || 'Unnamed Feature'} - ${testName}`;
-                
+                const fullTestName = `${featureName} - ${testName}`;
+
                 // Check if all steps in the scenario passed
                 let testPassed = true;
                 let totalSteps = 0;
                 let passedSteps = 0;
                 let failedSteps = 0;
                 let skippedSteps = 0;
-                
+                let errorMessage = null;
+
                 if (scenario.steps && Array.isArray(scenario.steps)) {
                     scenario.steps.forEach(step => {
                         totalSteps++;
-                        
+
                         if (step.result && step.result.status) {
                             switch (step.result.status) {
                                 case 'passed':
@@ -529,6 +607,10 @@ class AutoE2ERunner {
                                 case 'failed':
                                     failedSteps++;
                                     testPassed = false;
+                                    // Capture error message from first failed step
+                                    if (!errorMessage && step.result.error_message) {
+                                        errorMessage = step.result.error_message;
+                                    }
                                     break;
                                 case 'skipped':
                                     skippedSteps++;
@@ -545,7 +627,19 @@ class AutoE2ERunner {
                         }
                     });
                 }
-                
+
+                // Determine status
+                const status = testPassed && totalSteps > 0 ? 'passed' :
+                              (failedSteps > 0 ? 'failed' : 'skipped');
+
+                // Add test case details
+                testCases.push({
+                    feature_name: featureName,
+                    test_name: testName,
+                    status: status,
+                    error_message: errorMessage
+                });
+
                 // Count and categorize the test
                 if (testPassed && totalSteps > 0) {
                     successfulTests++;
@@ -556,14 +650,14 @@ class AutoE2ERunner {
                 }
             });
         });
-        
+
         // Display final results
         console.log('\n=== FINAL RESULTS ===');
         console.log(`Total Tests: ${successfulTests + failedTests}`);
         console.log(`Successful Tests: ${successfulTests}`);
         console.log(`Failed Tests: ${failedTests}`);
         console.log('');
-        
+
         if (failedTestNames.length > 0) {
             console.log('=== FAILED TESTS ===');
             failedTestNames.forEach((testName, index) => {
@@ -572,23 +666,24 @@ class AutoE2ERunner {
         } else {
             console.log('🎉 All tests passed!');
         }
-        
+
         return {
             totalTests: successfulTests + failedTests,
             successfulTests,
             failedTests,
-            failedTestNames
+            failedTestNames,
+            testCases // Include detailed test case data
         };
-        
+
     } catch (error) {
         console.error('Error analyzing cucumber report:', error.message);
-        
+
         if (error.message.includes('JSON')) {
             console.error('Make sure the file is valid JSON format');
         } else if (error.code === 'ENOENT') {
             console.error('File not found. Check the file path.');
         }
-        
+
         return null;
     }
   }
