@@ -474,7 +474,7 @@ class AutoE2ERunner {
         const username = os.userInfo().username;
         slackMessage += `\n\nDownload test report:\n\`\`\`scp ${username}@xx.xx.xx.xx:~/wp-rocket-e2e/test-results-storage/${resultTimestamp}/cucumber-report.html ${resultTimestamp}.html\`\`\``;
       }
-
+      slackMessage = slackMessage.replace(/'/g, "'\\''");
       await this.sendSlackMessage(slackMessage);
 
       // Step 8: Send data to Datator
