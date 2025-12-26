@@ -288,7 +288,7 @@ class AutoE2ERunner {
     try {
       // Prepare payload for Datator
       const payload = {
-        plugin: plugin,
+        product: plugin,
         test_suite: testSuite,
         timestamp: timestamp,
         total_tests: reportAnalysis.totalTests,
