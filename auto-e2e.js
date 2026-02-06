@@ -72,7 +72,10 @@ const CONFIG = {
   LOOP_INTERVAL: 5 * 60 * 1000, // 5 minutes in milliseconds
 
   // Logging
-  LOG_FILE: `${BASE_DIR}/auto-e2e.log`
+  LOG_FILE: `${BASE_DIR}/auto-e2e.log`,
+
+  // Optional Instance Name for identification
+  INSTANCE_NAME: process.env.AUTO_E2E_INSTANCE_NAME || null,
 };
 
 class AutoE2ERunner {
@@ -83,7 +86,8 @@ class AutoE2ERunner {
 
   async log(message) {
     const timestamp = new Date().toISOString();
-    const logMessage = `[${timestamp}] ${message}\n`;
+    const instancePrefix = CONFIG.INSTANCE_NAME ? `[${CONFIG.INSTANCE_NAME}] ` : '';
+    const logMessage = `[${timestamp}] ${instancePrefix}${message}\n`;
     console.log(logMessage.trim());
     
     try {
@@ -258,7 +262,9 @@ class AutoE2ERunner {
       this.log('No Slack webhook URL configured, skipping notification');
       return;
     }
-
+    if (CONFIG.INSTANCE_NAME) {
+      message = `*[${CONFIG.INSTANCE_NAME}]*\n\n` + message;
+    }
     try {
       const payload = {
         text: message

@@ -30,6 +30,16 @@ The following environment variables should be configured in your `.env` file:
 - `DATATOR_API_KEY`: API key for authenticating with Datator (required for sending test data to Datator)
 - `DATATOR_API_URL`: (Optional) Override the default Datator API endpoint. Defaults to `https://datator.wp-media.me/e2e_tests/results/`
 
+The following environment variable can be configured in your `.env`, but it is recommended to set it inline when running the script to set the name dynamically:
+
+- `AUTO_E2E_INSTANCE_NAME`: Optional identifier that prefixes Slack notifications (e.g., "BackWPup Apache", "WP Rocket Server 1")
+
+Example:
+
+```bash
+AUTO_E2E_INSTANCE_NAME="BackWPup Apache" node auto-e2e.js
+```
+
 **Setting up the Datator API Key**
 
 The `DATATOR_API_KEY` must match the `E2E_TESTS_API_KEY` configured in the Datator environment.
