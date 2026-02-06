@@ -86,7 +86,8 @@ class AutoE2ERunner {
 
   async log(message) {
     const timestamp = new Date().toISOString();
-    const logMessage = `[${timestamp}] ${message}\n`;
+    const instancePrefix = CONFIG.INSTANCE_NAME ? `[${CONFIG.INSTANCE_NAME}] ` : '';
+    const logMessage = `[${timestamp}] ${instancePrefix}${message}\n`;
     console.log(logMessage.trim());
     
     try {
