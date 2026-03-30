@@ -269,10 +269,14 @@ class AutoE2ERunner {
       const payload = {
         text: message
       };
-
+      const tempFile = path.join(CONFIG.WORK_DIR, '.slack-payload.json');
+      await fs.writeFile(tempFile, JSON.stringify(payload));
+      
       await this.executeCommand(
-        `curl -X POST -H 'Content-type: application/json' --data '${JSON.stringify(payload)}' ${CONFIG.SLACK_WEBHOOK_URL}`
+      `curl -X POST -H 'Content-type: application/json' --data @"${tempFile}" "${CONFIG.SLACK_WEBHOOK_URL}"`
       );
+
+      await fs.unlink(tempFile);
 
       this.log('Slack notification sent successfully');
     } catch (error) {
@@ -480,7 +484,6 @@ class AutoE2ERunner {
         const username = os.userInfo().username;
         slackMessage += `\n\nDownload test report:\n\`\`\`scp ${username}@xx.xx.xx.xx:~/wp-rocket-e2e/test-results-storage/${resultTimestamp}/cucumber-report.html ${resultTimestamp}.html\`\`\``;
       }
-      slackMessage = slackMessage.replace(/'/g, "'\\''");
       await this.sendSlackMessage(slackMessage);
 
       // Step 8: Send data to Datator
