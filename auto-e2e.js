@@ -179,7 +179,11 @@ class AutoE2ERunner {
     }
     
     // Make sure the script is executable
-    await this.executeCommand(`chmod +x ${compileScript}`);
+    try {
+      await this.executeCommand(`chmod +x ${compileScript}`);
+    } catch (error) {
+      this.log(`Could not make compile script executable, continuing anyway: ${error.message}`);
+    }
     
     // Run the compile script
     if (this.pluginName === CONFIG.BACKWPUP_NAME) {
