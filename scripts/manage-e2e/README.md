@@ -207,12 +207,12 @@ e2em (runs as root or sudoer)
 │           └── Chromium (Playwright) → BackWPup E2E tests on apache
 │
 ├── sudo -u auto-e2e-wpr -i bash -ic "..."
-│   └── PM2 daemon → xvfb-run → node auto-e2e.js
+│   └── PM2 daemon → xvfb-run → node auto-e2e.js test:e2e
 │       └── Xvfb virtual display :99 (1920x1080x24)
 │           └── Chromium (Playwright) → WP Rocket E2E tests on nginx
 │
 └── sudo -u auto-e2e-wpr-apache -i bash -ic "..."
-    └── PM2 daemon → xvfb-run → node auto-e2e.js
+    └── PM2 daemon → xvfb-run → node auto-e2e.js test:e2e
         └── Xvfb virtual display :99 (1920x1080x24)
             └── Chromium (Playwright) → WP Rocket E2E tests on apache
 ```
