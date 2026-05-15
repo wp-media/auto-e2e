@@ -139,13 +139,15 @@ get_instance_name() {
     printf '%s %s' "$prefix" "$server_type"
 }
 
-# Get the test suite argument for a user (empty string for WP Rocket).
+# Get the test suite argument for a user (empty string if unrecognised).
 get_suite_arg() {
     local user="$1"
     if [[ "$user" == *"bkwp"* ]]; then
         printf '%s' "test:bwpup"
+    elif [[ "$user" == *"wpr"* ]]; then
+        printf '%s' "test:e2e"
     fi
-    # For WP Rocket users, prints nothing (empty string)
+    # Unknown users print nothing (empty string) — no suite arg appended.
 }
 
 # Run a pm2 command as a specific user.
