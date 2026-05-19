@@ -150,6 +150,51 @@ get_suite_arg() {
     # Unknown users print nothing (empty string) — no suite arg appended.
 }
 
+# Check if a PM2 process with the given name is registered (exists in PM2's
+# process list) for a specific user, and determine its runtime state.
+#
+# Outputs one of: "online", "stopped", "errored", "not_found"
+# Always exits 0 — the state is communicated via stdout.
+#
+# Uses a single "pm2 describe <name>" call for efficiency (avoids spawning
+# multiple sudo + bash -ic shells per user).
+#
+# "pm2 describe <name>" exits 0 when the process exists in the process list
+# (regardless of status: online, stopped, errored) and exits non-zero when
+# it does not. This is equivalent to "pm2 show <name>".
+# Ref: https://pm2.keymetrics.io/docs/usage/process-management/#showing-application-metadata
+#
+# The describe output contains a status row in table format:
+#   │ status            │ online                                   │
+# This format is stable across PM2 4.x and 5.x.
+#
+# Usage: get_process_state <username> <process_name>
+# Example: state=$(get_process_state "auto-e2e-bkwp" "E2E-BWPUP-NGINX")
+get_process_state() {
+    local user="$1"
+    local proc_name="$2"
+    local describe_out
+
+    # Capture pm2 describe output. If the command fails (process not found,
+    # or PM2 daemon not running), we treat it as "not_found".
+    # Stderr suppressed: bash -ic may emit .bashrc noise; pm2 emits warnings.
+    describe_out=$(sudo -u "$user" -i bash -ic "pm2 describe '${proc_name}'" 2>/dev/null) || {
+        echo "not_found"
+        return 0
+    }
+
+    # Parse the status row from the describe output.
+    # grep -oE extracts the status value; we match the table row pattern.
+    if echo "$describe_out" | grep -qE "status.*online"; then
+        echo "online"
+    elif echo "$describe_out" | grep -qE "status.*errored"; then
+        echo "errored"
+    else
+        # Covers "stopped", "launching", or any other transient state.
+        echo "stopped"
+    fi
+}
+
 # Run a pm2 command as a specific user.
 #
 # IMPORTANT: We use 'bash -ic' (interactive mode) to ensure .bashrc is sourced.
@@ -306,7 +351,40 @@ for USER in "${EFFECTIVE_USERS[@]}"; do
             INSTANCE_NAME=$(get_instance_name "$USER")
             SUITE_ARG=$(get_suite_arg "$USER")
 
-            # Build PM2 start command.
+            # ─── Guard: ONE instance per user ────────────────────────────────
+            # Prevent duplicate PM2 processes. PM2's "pm2 start" always creates
+            # a new entry — it has no built-in duplicate prevention.
+            # Ref: https://pm2.keymetrics.io/docs/usage/process-management/
+            #
+            # Logic:
+            #   1. Process registered & online → skip (already running).
+            #   2. Process registered & not online → restart existing entry.
+            #   3. Process not registered → start fresh (fall through below).
+            # ─────────────────────────────────────────────────────────────────
+            proc_state=$(get_process_state "$USER" "$PROC_NAME")
+
+            case "$proc_state" in
+                online)
+                    echo "  → Already running: '${PROC_NAME}'. No action needed."
+                    echo "    Hint: Use 'restart' action to restart it, or 'delete' then 'start' to recreate."
+                    continue
+                    ;;
+                not_found)
+                    # Process does not exist — fall through to start fresh below.
+                    ;;
+                *)
+                    # stopped, errored, or any other non-online state.
+                    echo "  → Process '${PROC_NAME}' exists but is not online (state: ${proc_state}). Restarting..."
+                    if ! run_as_user "$USER" restart "$PROC_NAME"; then
+                        echo "Error: Failed to restart '${PROC_NAME}' for $USER" >&2
+                        exit_code=1
+                    fi
+                    continue
+                    ;;
+            esac
+            # ─── End guard ───────────────────────────────────────────────────
+
+            # Process does not exist — start fresh.
             #
             # Uses 'bash -ic' (same as run_as_user) so .bashrc / fnm / nvm is
             # sourced and pm2 is on PATH. See run_as_user() for full explanation.
