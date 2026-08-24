@@ -29,6 +29,7 @@ The following environment variables should be configured in your `.env` file:
 - `SLACK_WEBHOOK_URL`: Slack webhook URL for sending test notifications (required for Slack notifications)
 - `DATATOR_API_KEY`: API key for authenticating with Datator (required for sending test data to Datator)
 - `DATATOR_API_URL`: (Optional) Override the default Datator API endpoint. Defaults to `https://datator.wp-media.me/e2e_tests/results/`
+Slack reports also include the WordPress and PHP versions of the remote test site, fetched over SSH via WP-CLI. No extra configuration is needed for this: the SSH connection details (`WP_SSH_ADDRESS`, `WP_SSH_USERNAME`, `WP_SSH_KEY`, `WP_SSH_ROOT_DIR`) are read directly from `wp-rocket-e2e/config/wp.config.ts`, which already defines them. Requires WP-CLI (`wp`) to be installed on the remote test site; if the config file or WP-CLI is unavailable, this line is simply omitted from the report.
 
 The following environment variable can be configured in your `.env`, but it is recommended to set it inline when running the script to set the name dynamically:
 
