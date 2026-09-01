@@ -284,6 +284,61 @@ class AutoE2ERunner {
     }
   }
 
+  async getWpE2eSshConfig() {
+    // wp-rocket-e2e already hardcodes its SSH connection details for the remote
+    // test site in this file, so we read them from there instead of duplicating
+    // them in auto-e2e's own configuration.
+    const wpConfigPath = path.join(CONFIG.E2E_DIR, 'config', 'wp.config.ts');
+    const configContent = await fs.readFile(wpConfigPath, 'utf8');
+
+    const extract = (key) => {
+      const match = configContent.match(new RegExp(`${key}\\s*=\\s*['"]([^'"]+)['"]`));
+      return match ? match[1] : null;
+    };
+
+    const sshConfig = {
+      address: extract('WP_SSH_ADDRESS'),
+      username: extract('WP_SSH_USERNAME'),
+      key: extract('WP_SSH_KEY'),
+      rootDir: extract('WP_SSH_ROOT_DIR'),
+    };
+
+    const missingKeys = Object.entries(sshConfig).filter(([, value]) => !value).map(([key]) => key);
+    if (missingKeys.length > 0) {
+      throw new Error(`Could not find ${missingKeys.join(', ')} in ${wpConfigPath}`);
+    }
+
+    return sshConfig;
+  }
+
+  async runRemoteWpCli(wpCliArgs) {
+    const { address, username, key, rootDir } = await this.getWpE2eSshConfig();
+    const remoteCommand = `wp --path=${rootDir} ${wpCliArgs}`;
+    const sshCommand = `ssh -i ${key} -o StrictHostKeyChecking=no ${username}@${address} '${remoteCommand}'`;
+    return this.executeCommand(sshCommand);
+  }
+
+  async getSiteVersions() {
+    let wpVersion = null;
+    let phpVersion = null;
+
+    try {
+      const wpVersionResult = await this.runRemoteWpCli('core version');
+      wpVersion = wpVersionResult.stdout ? wpVersionResult.stdout.trim() : null;
+    } catch (error) {
+      this.log(`Could not get WordPress version via WP-CLI: ${error.message}`);
+    }
+
+    try {
+      const phpVersionResult = await this.runRemoteWpCli('eval "echo PHP_VERSION;"');
+      phpVersion = phpVersionResult.stdout ? phpVersionResult.stdout.trim() : null;
+    } catch (error) {
+      this.log(`Could not get PHP version via WP-CLI: ${error.message}`);
+    }
+
+    return { wpVersion, phpVersion };
+  }
+
   async sendDataToDatator(reportAnalysis, testSuite, plugin, timestamp, gitCommit = null, duration = null) {
     if (!CONFIG.DATATOR_API_KEY) {
       this.log('No Datator API key configured, skipping data submission');
@@ -479,6 +534,12 @@ class AutoE2ERunner {
         slackMessage += `\n\nNumber of failed tests: ${reportAnalysis.failedTests}`;
         slackMessage += `\n\nFailed tests:\n${reportAnalysis.failedTestNames.join('\n')}`;
       }
+      // Add the WordPress/PHP versions of the test site, when available
+      const { wpVersion, phpVersion } = await this.getSiteVersions();
+      if (wpVersion || phpVersion) {
+        slackMessage += `\n\nWordPress: ${wpVersion || 'unknown'} | PHP: ${phpVersion || 'unknown'}`;
+      }
+
       // Add SCP download command if results were saved to facilitate downloading
       if (resultTimestamp) {
         const username = os.userInfo().username;
