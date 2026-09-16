@@ -318,6 +318,21 @@ class AutoE2ERunner {
     return this.executeCommand(sshCommand);
   }
 
+  async getWebsiteUrl() {
+    // The test website URL (WP_BASE_URL) is hardcoded in wp-rocket-e2e's own
+    // config, same as the SSH details read in getWpE2eSshConfig(). It is sent
+    // to Datator so results can be filtered by test website in Metabase.
+    try {
+      const wpConfigPath = path.join(CONFIG.E2E_DIR, 'config', 'wp.config.ts');
+      const configContent = await fs.readFile(wpConfigPath, 'utf8');
+      const match = configContent.match(/WP_BASE_URL\s*=\s*['"]([^'"]+)['"]/);
+      return match ? match[1] : null;
+    } catch (error) {
+      this.log(`Could not determine test website URL: ${error.message}`);
+      return null;
+    }
+  }
+
   async getSiteVersions() {
     let wpVersion = null;
     let phpVersion = null;
@@ -339,7 +354,7 @@ class AutoE2ERunner {
     return { wpVersion, phpVersion };
   }
 
-  async sendDataToDatator(reportAnalysis, testSuite, plugin, timestamp, gitCommit = null, duration = null) {
+  async sendDataToDatator(reportAnalysis, testSuite, plugin, timestamp, gitCommit = null, duration = null, websiteUrl = null) {
     if (!CONFIG.DATATOR_API_KEY) {
       this.log('No Datator API key configured, skipping data submission');
       return;
@@ -361,6 +376,7 @@ class AutoE2ERunner {
         failed_tests: reportAnalysis.failedTests,
         git_commit: gitCommit,
         test_duration_seconds: duration,
+        website_url: websiteUrl,
         test_cases: reportAnalysis.testCases || []
       };
 
@@ -566,6 +582,9 @@ class AutoE2ERunner {
       const durationMs = cycleEnd - cycleStart;
       const durationSeconds = Math.floor(durationMs / 1000);
 
+      // Get the test website URL so results can be filtered by website in Metabase
+      const websiteUrl = await this.getWebsiteUrl();
+
       // Send to Datator with ISO timestamp
       await this.sendDataToDatator(
         reportAnalysis,
@@ -573,7 +592,8 @@ class AutoE2ERunner {
         pluginCode,
         cycleStart.toISOString(),
         gitCommit,
-        durationSeconds
+        durationSeconds,
+        websiteUrl
       );
 
       this.log(`Cycle completed in ${durationMs}ms`);
