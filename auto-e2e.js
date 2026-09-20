@@ -559,6 +559,17 @@ class AutoE2ERunner {
       const newReleaseZipPath = await this.zipPlugin();
       await this.moveZipToPlugin(newReleaseZipPath, this.zipForE2E);
 
+      // Capture the new_release commit hash now, while this.cloneDir is still
+      // checked out to the develop branch (before we switch it to trunk below).
+      let newReleaseCommit = null;
+      try {
+        const gitHashCommand = `cd ${this.cloneDir} && git rev-parse HEAD`;
+        const gitHashResult = await this.executeCommand(gitHashCommand);
+        newReleaseCommit = gitHashResult.stdout ? gitHashResult.stdout.trim() : null;
+      } catch (error) {
+        this.log(`Could not get git commit hash: ${error.message}`);
+      }
+
       // Step 1b: Clean build artifacts before switching branches
       await this.cleanCloneDir();
 
@@ -622,15 +633,9 @@ class AutoE2ERunner {
       // Map plugin name to plugin code for Datator
       const pluginCode = this.pluginName === CONFIG.WP_ROCKET_NAME ? 'wp_rocket' : 'backwpup';
 
-      // Get git commit hash from the plugin directory
-      let gitCommit = null;
-      try {
-        const gitHashCommand = `cd ${this.cloneDir} && git rev-parse HEAD`;
-        const gitHashResult = await this.executeCommand(gitHashCommand);
-        gitCommit = gitHashResult.stdout ? gitHashResult.stdout.trim() : null;
-      } catch (error) {
-        this.log(`Could not get git commit hash: ${error.message}`);
-      }
+      // Use the new_release commit hash captured earlier (Step 1), before
+      // this.cloneDir was switched over to the previous_stable/trunk build.
+      const gitCommit = newReleaseCommit;
 
       const cycleEnd = new Date();
       const durationMs = cycleEnd - cycleStart;
