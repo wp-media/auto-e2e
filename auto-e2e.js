@@ -59,7 +59,13 @@ const CONFIG = {
   // ZIP File for E2E
   WP_ROCKET_ZIP_FOR_E2E: `new_release.zip`,
   BACKWPUP_ZIP_FOR_E2E: `backwpup-pro.zip`,
-  
+  // ZIP File for E2E - previous stable (trunk) build, used by upgrade-testing scenarios
+  WP_ROCKET_PREVIOUS_STABLE_ZIP: 'previous_stable.zip',
+  BACKWPUP_PREVIOUS_STABLE_ZIP: 'backwpup-pro-previous-stable.zip',
+
+  // Branches used to build the "new release" and "previous stable" zips
+  NEW_RELEASE_BRANCH: 'develop',
+  PREVIOUS_STABLE_BRANCH: 'trunk',
 
   // Slack webhook URL - you'll need to set this up
   SLACK_WEBHOOK_URL: process.env.SLACK_WEBHOOK_URL || '',
@@ -76,6 +82,10 @@ const CONFIG = {
 
   // Optional Instance Name for identification
   INSTANCE_NAME: process.env.AUTO_E2E_INSTANCE_NAME || null,
+
+  // WordPress auto-update on the remote test site before each cycle's tests run.
+  // Set UPDATE_WORDPRESS=false in .env to disable.
+  UPDATE_WORDPRESS: process.env.UPDATE_WORDPRESS !== 'false',
 };
 
 class AutoE2ERunner {
@@ -135,19 +145,24 @@ class AutoE2ERunner {
     }
   }
 
-  async cloneOrUpdatePlugin() {
-    this.log(`Cloning/updating ${this.pluginName} repository...`);
-    
+  async cloneOrUpdatePlugin(branch) {
+    this.log(`Cloning/updating ${this.pluginName} repository (branch: ${branch})...`);
+
     const exists = await this.checkPathExists(this.cloneDir);
-    
-    if (exists) {
-      // Update existing repo
-      await this.executeCommand('git fetch origin', this.cloneDir);
-      await this.executeCommand('git reset --hard origin/develop', this.cloneDir); // or main/master
-    } else {
+
+    if (!exists) {
       // Clone fresh
       await this.executeCommand(`git clone ${this.githubRepo} ${this.cloneDir}`);
     }
+
+    await this.executeCommand('git fetch origin', this.cloneDir);
+    await this.executeCommand(`git checkout ${branch}`, this.cloneDir);
+    await this.executeCommand(`git reset --hard origin/${branch}`, this.cloneDir);
+  }
+
+  async cleanCloneDir() {
+    this.log(`Cleaning build artifacts in ${this.cloneDir}...`);
+    await this.executeCommand('git clean -fdx', this.cloneDir);
   }
 
   async zipPlugin() {
@@ -187,6 +202,10 @@ class AutoE2ERunner {
     
     // Run the compile script
     if (this.pluginName === CONFIG.BACKWPUP_NAME) {
+      // NOTE: --ver is hardcoded here regardless of which branch (develop/trunk) was
+      // checked out, so the new_release and previous_stable BackWPUp zips built in the
+      // same cycle will both self-report this identical version. This is a known
+      // limitation if/when a BackWPUp upgrade-detection E2E test is added later.
       await this.executeCommand(`bash ${compileScript} --ver 5.99.99`, CONFIG.WORK_DIR);
     } else {
       await this.executeCommand(`bash ${compileScript}`, CONFIG.WORK_DIR);
@@ -199,7 +218,7 @@ class AutoE2ERunner {
         const files = fssync.readdirSync(this.compiledZipFolder);
         const matchingFiles = files.filter(file => file.startsWith(this.compiledZipName));
         if (matchingFiles.length == 0) {
-          throw new Error('No WP Rocket ZIP file found after compilation');
+          throw new Error(`No ${this.pluginName} ZIP file found after compilation`);
         }
         zipPath = path.join(this.compiledZipFolder, matchingFiles[0]);
     }
@@ -215,21 +234,21 @@ class AutoE2ERunner {
   }
 }
 
-  async moveZipToPlugin(zipPath) {
-    this.log('Moving ZIP to plugin directory...');
-    
+  async moveZipToPlugin(zipPath, targetName) {
+    this.log(`Moving ZIP to plugin directory as ${targetName}...`);
+
     await this.createDirectoryIfNeeded(CONFIG.PLUGIN_DIR);
-    
-    // Remove old wp-rocket zips to avoid clutter
+
+    // Remove old zip of the same target name to avoid clutter
     try {
-      await this.executeCommand(`rm -f ${CONFIG.PLUGIN_DIR}/${this.zipForE2E}`);
+      await this.executeCommand(`rm -f ${CONFIG.PLUGIN_DIR}/${targetName}`);
     } catch (error) {
       this.log('No old ZIP files to remove (or removal failed)');
     }
-    
-    const destinationPath = path.join(CONFIG.PLUGIN_DIR, this.zipForE2E);
+
+    const destinationPath = path.join(CONFIG.PLUGIN_DIR, targetName);
     await this.executeCommand(`mv ${zipPath} ${destinationPath}`);
-    
+
     return destinationPath;
   }
 
@@ -318,6 +337,22 @@ class AutoE2ERunner {
     return this.executeCommand(sshCommand);
   }
 
+  async updateWordPress() {
+    if (!CONFIG.UPDATE_WORDPRESS) {
+      this.log('WordPress auto-update disabled (UPDATE_WORDPRESS=false), skipping...');
+      return;
+    }
+    this.log('Updating WordPress core on the remote test site...');
+    try {
+      await this.runRemoteWpCli('core update');
+      await this.runRemoteWpCli('core update-db');
+      this.log('WordPress core updated successfully');
+    } catch (error) {
+      this.log(`Failed to update WordPress: ${error.message}`);
+      // Non-fatal per issue #11: continue the cycle even if the update fails
+    }
+  }
+
   async getSiteVersions() {
     let wpVersion = null;
     let phpVersion = null;
@@ -384,9 +419,9 @@ class AutoE2ERunner {
   }
 
   async deleteOldTestResults() {
-    // Delete test results folder older than 4 days
-    this.log('Deleting old test results...');
-    
+    // Delete only passed test results folders older than 7 days; keep failed/unanalyzable ones indefinitely
+    this.log('Deleting old passed test results (older than 7 days)...');
+
     try {
       // Check if results directory exists
       const dirExists = await this.checkPathExists(CONFIG.RESULTS_DIR);
@@ -397,26 +432,44 @@ class AutoE2ERunner {
 
       const files = await fs.readdir(CONFIG.RESULTS_DIR);
       const now = Date.now();
-      const fourDaysAgo = now - (4 * 24 * 60 * 60 * 1000); // 4 days in milliseconds
-      
+      const sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000); // 7 days in milliseconds
+
       let deletedCount = 0;
-      
+      let keptFailedCount = 0;
+      let keptUnanalyzableCount = 0;
+
       for (const file of files) {
         const filePath = path.join(CONFIG.RESULTS_DIR, file);
-        
+
         try {
           const stats = await fs.stat(filePath);
-          if (stats.isDirectory() && stats.mtime.getTime() < fourDaysAgo) {
+          if (!stats.isDirectory() || stats.mtime.getTime() >= sevenDaysAgo) {
+            continue;
+          }
+
+          const reportPath = path.join(filePath, 'cucumber-report.json');
+          const reportExists = await this.checkPathExists(reportPath);
+          if (!reportExists) {
+            keptUnanalyzableCount++;
+            continue; // can't confirm pass/fail without a report - be conservative, keep it
+          }
+
+          const analysis = await this.analyzeCucumberReport(reportPath);
+          const allPassed = analysis && analysis.totalTests > 0 && analysis.failedTests === 0;
+
+          if (allPassed) {
             await fs.rm(filePath, { recursive: true, force: true });
-            this.log(`Deleted old test result: ${file}`);
+            this.log(`Deleted old passed test result: ${file}`);
             deletedCount++;
+          } else {
+            keptFailedCount++;
           }
         } catch (statError) {
           this.log(`Could not process file ${file}: ${statError.message}`);
         }
       }
-      
-      this.log(`Old test results cleanup completed. Deleted ${deletedCount} directories.`);
+
+      this.log(`Old test results cleanup completed. Deleted ${deletedCount} passed, kept ${keptFailedCount} failed, kept ${keptUnanalyzableCount} unanalyzable.`);
     } catch (error) {
       this.log(`Failed to delete old test results: ${error.message}`);
     }
@@ -470,6 +523,7 @@ class AutoE2ERunner {
         this.compiledZipFolder = CONFIG.WP_ROCKET_COMPILED_ZIP_FOLDER;
         this.compiledZipName = CONFIG.WP_ROCKET_COMPILED_ZIP_NAME;
         this.zipForE2E = CONFIG.WP_ROCKET_ZIP_FOR_E2E;
+        this.previousStableZip = CONFIG.WP_ROCKET_PREVIOUS_STABLE_ZIP;
         break;
       case CONFIG.BACKWPUP_NAME:
         this.log(`Configuring for ${CONFIG.BACKWPUP_NAME} tests...`);
@@ -480,6 +534,7 @@ class AutoE2ERunner {
         this.compiledZipFolder = CONFIG.BACKWPUP_COMPILED_ZIP_FOLDER;
         this.compiledZipName = CONFIG.BACKWPUP_COMPILED_ZIP_NAME_START;
         this.zipForE2E = CONFIG.BACKWPUP_ZIP_FOR_E2E;
+        this.previousStableZip = CONFIG.BACKWPUP_PREVIOUS_STABLE_ZIP;
         break;
     }
   }
@@ -499,32 +554,47 @@ class AutoE2ERunner {
       // Configure for the specific test suite
       await this.configureForTestSuite(testSuite);
 
-      // Step 1: Clone/update the plugin
-      await this.cloneOrUpdatePlugin();
-      
-      // Step 2: Create ZIP
-      const zipPath = await this.zipPlugin();
-      
-      // Step 3: Move ZIP to plugin directory
-      await this.moveZipToPlugin(zipPath);
-      
-      // Step 4: Update E2E repo
+      // Step 1: Build new_release (develop branch)
+      await this.cloneOrUpdatePlugin(CONFIG.NEW_RELEASE_BRANCH);
+      const newReleaseZipPath = await this.zipPlugin();
+      await this.moveZipToPlugin(newReleaseZipPath, this.zipForE2E);
+
+      // Step 1b: Clean build artifacts before switching branches
+      await this.cleanCloneDir();
+
+      // Step 1c: Build previous_stable (trunk branch)
+      await this.cloneOrUpdatePlugin(CONFIG.PREVIOUS_STABLE_BRANCH);
+      const previousStableZipPath = await this.zipPlugin();
+      await this.moveZipToPlugin(previousStableZipPath, this.previousStableZip);
+
+      // Step 2: Update E2E repo
       await this.updateE2ERepo();
-      
-      // Step 5: Run the test suite
+
+      // Step 3: Update WordPress on the remote test site (non-fatal)
+      await this.updateWordPress();
+
+      // Step 4: Run the test suite
       const result = await this.runE2ETests(testSuite);
-      
+
       // Step 6: Maintain test results
       await this.deleteOldTestResults();
       const resultTimestamp = await this.saveTestResults();
 
       // Step 7: Analyze report and send notification if needed
       //Analyze cucumber report using analyzeCucumberReport
-      const jsonReportPath = path.join(CONFIG.RESULTS_DIR, resultTimestamp, 'cucumber-report.json');
-      const reportAnalysis = await this.analyzeCucumberReport(jsonReportPath);
-      
+      let reportAnalysis = null;
+      if (resultTimestamp) {
+        const jsonReportPath = path.join(CONFIG.RESULTS_DIR, resultTimestamp, 'cucumber-report.json');
+        reportAnalysis = await this.analyzeCucumberReport(jsonReportPath);
+      } else {
+        this.log('No test results timestamp available, skipping cucumber report analysis');
+      }
+
       let slackMessage = '';
-      if (reportAnalysis.failedTests === 0 && reportAnalysis.successfulTests > 0) {
+      if (!reportAnalysis) {
+        this.log(`⚠️ E2E tests ${testSuite} completed but no test results could be analyzed`);
+        slackMessage = `⚠️ Auto E2E tests ${testSuite} completed but no test results were found to analyze!`;
+      } else if (reportAnalysis.failedTests === 0 && reportAnalysis.successfulTests > 0) {
         this.log(`✅ E2E tests ${testSuite} passed successfully`);
         slackMessage = `✅ Auto E2E tests ${testSuite} Ran Successfully!`;
         slackMessage += `\n\nNumber of successful tests: ${reportAnalysis.successfulTests}`;
