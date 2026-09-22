@@ -319,14 +319,19 @@ class AutoE2ERunner {
   }
 
   async getWebsiteUrl() {
-    // The test website URL (WP_BASE_URL) is hardcoded in wp-rocket-e2e's own
-    // config, same as the SSH details read in getWpE2eSshConfig(). It is sent
-    // to Datator so results can be filtered by test website in Metabase.
+    // WP_BASE_URL isn't always a plain string literal in wp-rocket-e2e's config
+    // (it's commonly a destructured default, e.g. `WP_BASE_URL = process.env.npm_config_env
+    // !== undefined ? WP_ADMIN_USER.local : WP_ADMIN_USER.live`), so unlike the SSH
+    // details in getWpE2eSshConfig(), it can't be reliably extracted with a regex.
+    // Evaluate the config with ts-node instead, the same way the e2e suite itself
+    // resolves it, so we get the real final value rather than matching source text.
     try {
-      const wpConfigPath = path.join(CONFIG.E2E_DIR, 'config', 'wp.config.ts');
-      const configContent = await fs.readFile(wpConfigPath, 'utf8');
-      const match = configContent.match(/WP_BASE_URL\s*=\s*['"]([^'"]+)['"]/);
-      return match ? match[1] : null;
+      const { stdout } = await this.executeCommand(
+        `npx ts-node -e "console.log(require('./config/wp.config.ts').WP_BASE_URL)"`,
+        CONFIG.E2E_DIR
+      );
+      const url = stdout.trim();
+      return url || null;
     } catch (error) {
       this.log(`Could not determine test website URL: ${error.message}`);
       return null;
