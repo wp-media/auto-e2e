@@ -31,6 +31,8 @@ The following environment variables should be configured in your `.env` file:
 - `DATATOR_API_URL`: (Optional) Override the default Datator API endpoint. Defaults to `https://datator.wp-media.me/e2e_tests/results/`
 Slack reports also include the WordPress and PHP versions of the remote test site, fetched over SSH via WP-CLI. No extra configuration is needed for this: the SSH connection details (`WP_SSH_ADDRESS`, `WP_SSH_USERNAME`, `WP_SSH_KEY`, `WP_SSH_ROOT_DIR`) are read directly from `wp-rocket-e2e/config/wp.config.ts`, which already defines them. Requires WP-CLI (`wp`) to be installed on the remote test site; if the config file or WP-CLI is unavailable, this line is simply omitted from the report.
 
+Data sent to Datator also includes the test website URL (`website_url`), read from `WP_BASE_URL` in the same `wp-rocket-e2e/config/wp.config.ts` file. This lets results be filtered by test website in Metabase, which is useful for comparing environments (e.g. Apache vs Nginx) or isolating a specific server while investigating flaky tests. If the config file is unavailable, `website_url` is simply sent as `null`.
+
 The following environment variable can be configured in your `.env`, but it is recommended to set it inline when running the script to set the name dynamically:
 
 - `AUTO_E2E_INSTANCE_NAME`: Optional identifier that prefixes Slack notifications (e.g., "BackWPup Apache", "WP Rocket Server 1")
