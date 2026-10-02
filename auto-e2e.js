@@ -319,12 +319,8 @@ class AutoE2ERunner {
   }
 
   async getWebsiteUrl() {
-    // WP_BASE_URL isn't always a plain string literal in wp-rocket-e2e's config
-    // (it's commonly a destructured default, e.g. `WP_BASE_URL = process.env.npm_config_env
-    // !== undefined ? WP_ADMIN_USER.local : WP_ADMIN_USER.live`), so unlike the SSH
-    // details in getWpE2eSshConfig(), it can't be reliably extracted with a regex.
-    // Evaluate the config with ts-node instead, the same way the e2e suite itself
-    // resolves it, so we get the real final value rather than matching source text.
+    // WP_BASE_URL is often a computed expression in wp.config.ts, so unlike the SSH details
+    // it can't be regex-extracted; evaluate the config with ts-node to get the real value.
     try {
       const { stdout } = await this.executeCommand(
         `npx ts-node -e "console.log(require('./config/wp.config.ts').WP_BASE_URL)"`,
