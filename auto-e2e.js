@@ -311,11 +311,15 @@ class AutoE2ERunner {
     return sshConfig;
   }
 
-  async runRemoteWpCli(wpCliArgs) {
-    const { address, username, key, rootDir } = await this.getWpE2eSshConfig();
-    const remoteCommand = `wp --path=${rootDir} ${wpCliArgs}`;
+  async runRemoteShell(remoteCommand) {
+    const { address, username, key } = await this.getWpE2eSshConfig();
     const sshCommand = `ssh -i ${key} -o StrictHostKeyChecking=no ${username}@${address} '${remoteCommand}'`;
     return this.executeCommand(sshCommand);
+  }
+
+  async runRemoteWpCli(wpCliArgs) {
+    const { rootDir } = await this.getWpE2eSshConfig();
+    return this.runRemoteShell(`wp --path=${rootDir} ${wpCliArgs}`);
   }
 
   async getWebsiteUrl() {
@@ -346,13 +350,29 @@ class AutoE2ERunner {
     }
 
     try {
-      const phpVersionResult = await this.runRemoteWpCli('eval "echo PHP_VERSION;"');
-      phpVersion = phpVersionResult.stdout ? phpVersionResult.stdout.trim() : null;
+      phpVersion = await this.getSitePhpVersion();
     } catch (error) {
       this.log(`Could not get PHP version via WP-CLI: ${error.message}`);
     }
 
     return { wpVersion, phpVersion };
+  }
+
+  async getSitePhpVersion() {
+    // `wp` over SSH runs with the server's default CLI PHP, which can differ from the PHP-FPM
+    // version the nginx vhost serves the site with (WordOps includes common/wpcommon-php<MN>.conf).
+    // Run WP-CLI with the vhost's PHP binary so the reported version is the one serving the site,
+    // and fall back to the default CLI PHP when the vhost can't be inspected.
+    const { rootDir } = await this.getWpE2eSshConfig();
+    const domain = path.posix.basename(path.posix.dirname(rootDir));
+    const vhostPhpVersion =
+      `v=$(grep -ohE "wpcommon-php[0-9]+" /etc/nginx/sites-enabled/${domain} 2>/dev/null | head -1 | grep -oE "[0-9]+$"); ` +
+      'php=php$(echo $v | sed -E "s/^(.)/\\1./"); ';
+    const evalVersion = `--path=${rootDir} eval "echo PHP_VERSION;"`;
+    const result = await this.runRemoteShell(
+      `${vhostPhpVersion}if [ -n "$v" ] && command -v $php >/dev/null; then $php $(command -v wp) ${evalVersion}; else wp ${evalVersion}; fi`
+    );
+    return result.stdout ? result.stdout.trim() : null;
   }
 
   async sendDataToDatator(reportAnalysis, testSuite, plugin, timestamp, gitCommit = null, duration = null, websiteUrl = null) {
